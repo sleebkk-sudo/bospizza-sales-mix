@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fbf7f2;
+  --foreground: #1c1917;
+
+  --surface-0: #fbf7f2;
+  --surface-1: #f4ede3;
+  --surface-2: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.18);
+
+  --text-primary: #1c1917;
+  --text-secondary: #6b5f52;
+  --text-muted: #948877;
+
+  --bg-accent: #fdeadb;
+  --text-accent: #8a3b12;
+  --fill-accent: #d9530f;
+
+  --bg-success: #eaf3de;
+  --text-success: #27500a;
+  --fill-success: #639922;
+
+  --bg-warning: #faeeda;
+  --text-warning: #633806;
+  --fill-warning: #ba7517;
+
+  --bg-danger: #fcebeb;
+  --text-danger: #791f1f;
+  --fill-danger: #e24b4a;
+
+  --bg-neutral: #f4ede3;
+  --text-neutral: #444441;
+  --fill-neutral: #948877;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1c1917;
+    --foreground: #f5f0e8;
+
+    --surface-0: #1c1917;
+    --surface-1: #26221e;
+    --surface-2: #2e2924;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-strong: rgba(255, 255, 255, 0.18);
+
+    --text-primary: #f5f0e8;
+    --text-secondary: #c2b6a5;
+    --text-muted: #948877;
+
+    --bg-accent: #8a3b12;
+    --text-accent: #f7c9a5;
+    --fill-accent: #e2691f;
+
+    --bg-success: #27500a;
+    --text-success: #c0dd97;
+    --fill-success: #639922;
+
+    --bg-warning: #633806;
+    --text-warning: #fac775;
+    --fill-warning: #ba7517;
+
+    --bg-danger: #791f1f;
+    --text-danger: #f7c1c1;
+    --fill-danger: #e24b4a;
+
+    --bg-neutral: #444441;
+    --text-neutral: #d3d1c7;
+    --fill-neutral: #c2b6a5;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
