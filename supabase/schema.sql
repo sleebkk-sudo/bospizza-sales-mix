@@ -24,13 +24,18 @@ create table if not exists menu_sales_items (
   product_name text not null,
   qty integer not null,
   revenue bigint not null,
-  store_name text
+  store_name text,
+  -- 배달앱 브랜드 리포트는 파일 자체의 날짜를 담고 있어 이 값이 채워짐.
+  -- 자체 4컬럼 템플릿은 업로드 시 입력한 기간(period_start)을 그대로 씀.
+  sale_date date
 );
 
 create index if not exists menu_sales_items_snapshot_id_idx
   on menu_sales_items (snapshot_id);
 create index if not exists menu_sales_items_store_name_idx
   on menu_sales_items (store_name);
+create index if not exists menu_sales_items_sale_date_idx
+  on menu_sales_items (sale_date);
 
 -- ============================================================
 -- 2. 메뉴별 원가 — 매출 대비 마진 계산용. name은 업로드 파일의
@@ -42,3 +47,28 @@ create table if not exists menu_costs (
   note text,
   updated_at timestamptz not null default now()
 );
+
+-- ============================================================
+-- 3. 매장 목록 — 대시보드 매장 필터 드롭다운용 (업로드 시 자동 채워짐).
+-- ============================================================
+create table if not exists stores (
+  name text primary key,
+  first_seen date not null default current_date
+);
+
+-- ============================================================
+-- 4. 매장×날짜별 주문 통계 — 건단가(매출/주문수) 계산용.
+--    배달앱 브랜드 리포트의 주문ID를 세어서 만듦. 자체 템플릿 업로드에는
+--    주문 단위 정보가 없어 이 테이블에 데이터가 채워지지 않음.
+-- ============================================================
+create table if not exists store_daily_stats (
+  id uuid primary key default gen_random_uuid(),
+  sale_date date not null,
+  store_name text not null,
+  order_count integer not null,
+  total_qty integer not null,
+  total_revenue bigint not null,
+  unique (sale_date, store_name)
+);
+create index if not exists store_daily_stats_sale_date_idx
+  on store_daily_stats (sale_date);

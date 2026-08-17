@@ -1,25 +1,47 @@
 import Link from "next/link";
+import { format, subDays, startOfMonth } from "date-fns";
+import { MetricCard } from "@/components/MetricCard";
+import { FilterBar } from "@/components/FilterBar";
+import { MenuMixSection } from "@/components/MenuMixSection";
+import { TrendChart } from "@/components/TrendChart";
+import { getDateBounds, getStoreNames, getItemsInRange, getDailyStatsInRange } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
-import { MetricCard } from "@/components/MetricCard";
-import { MenuMixChart } from "@/components/MenuMixChart";
-import { CategoryPieChart } from "@/components/CategoryPieChart";
-import { TrendChart } from "@/components/TrendChart";
-import {
-  getLatestSnapshot,
-  getItemsForSnapshot,
-  getSnapshots,
-  getMenuCosts,
-} from "@/lib/data";
 
-export default async function DashboardPage() {
-  const [latest, snapshots, costs] = await Promise.all([
-    getLatestSnapshot(),
-    getSnapshots(),
-    getMenuCosts(),
-  ]);
+function fmt(d: Date) {
+  return format(d, "yyyy-MM-dd");
+}
 
-  if (!latest) {
+function clamp(date: string, min: string, max: string) {
+  if (date < min) return min;
+  if (date > max) return max;
+  return date;
+}
+
+function buildPresets(minDate: string, maxDate: string) {
+  const max = new Date(`${maxDate}T00:00:00Z`);
+  const today = maxDate;
+  const yesterday = fmt(subDays(max, 1));
+  const last7 = fmt(subDays(max, 6));
+  const monthStart = fmt(startOfMonth(max));
+  return [
+    { label: "오늘", from: today, to: today },
+    { label: "어제", from: clamp(yesterday, minDate, maxDate), to: clamp(yesterday, minDate, maxDate) },
+    { label: "최근 7일", from: clamp(last7, minDate, maxDate), to: today },
+    { label: "이번달", from: clamp(monthStart, minDate, maxDate), to: today },
+    { label: "전체기간", from: minDate, to: maxDate },
+  ];
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string; store?: string }>;
+}) {
+  const sp = await searchParams;
+  const [bounds, stores] = await Promise.all([getDateBounds(), getStoreNames()]);
+
+  if (!bounds.min || !bounds.max) {
     return (
       <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-8 text-center">
         <p className="text-sm text-[var(--text-secondary)] mb-4">
@@ -35,10 +57,24 @@ export default async function DashboardPage() {
     );
   }
 
-  const items = await getItemsForSnapshot(latest.id);
-  const costByName = new Map(costs.map((c) => [c.name, c.cost]));
+  const presets = buildPresets(bounds.min, bounds.max);
+  const defaultRange = presets.find((p) => p.label === "최근 7일")!;
 
-  // 매장별로 나뉘어 저장된 행을 메뉴 단위로 다시 합산 (요기요 브랜드 리포트는 매장×메뉴 단위로 저장됨)
+  const from = clamp(sp.from || defaultRange.from, bounds.min, bounds.max);
+  const to = clamp(sp.to || defaultRange.to, bounds.min, bounds.max);
+  const store = sp.store && sp.store !== "all" ? sp.store : null;
+
+  const [items, dailyStats] = await Promise.all([
+    getItemsInRange(from, to, store),
+    getDailyStatsInRange(from, to, store),
+  ]);
+
+  const totalRevenue = items.reduce((sum, i) => sum + i.revenue, 0);
+  const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+  const orderCount = dailyStats.reduce((sum, d) => sum + d.order_count, 0);
+  const statsRevenue = dailyStats.reduce((sum, d) => sum + d.total_revenue, 0);
+  const avgTicket = orderCount > 0 ? Math.round(statsRevenue / orderCount) : null;
+
   const productTotals = new Map<string, { category: string; qty: number; revenue: number }>();
   for (const item of items) {
     const existing = productTotals.get(item.product_name);
@@ -46,98 +82,96 @@ export default async function DashboardPage() {
       existing.qty += item.qty;
       existing.revenue += item.revenue;
     } else {
-      productTotals.set(item.product_name, {
-        category: item.category,
-        qty: item.qty,
-        revenue: item.revenue,
-      });
+      productTotals.set(item.product_name, { category: item.category, qty: item.qty, revenue: item.revenue });
     }
   }
-
   const menuMix = [...productTotals.entries()]
-    .map(([productName, v]) => ({
-      productName,
-      category: v.category,
-      revenue: v.revenue,
-      qty: v.qty,
-      share: latest.total_revenue > 0 ? (v.revenue / latest.total_revenue) * 100 : 0,
-    }))
+    .map(([productName, v]) => ({ productName, ...v }))
     .sort((a, b) => b.revenue - a.revenue);
 
-  const categoryTotals = new Map<string, number>();
+  const categoryTotals = new Map<string, { qty: number; revenue: number }>();
   for (const item of items) {
-    categoryTotals.set(item.category, (categoryTotals.get(item.category) ?? 0) + item.revenue);
+    const existing = categoryTotals.get(item.category);
+    if (existing) {
+      existing.qty += item.qty;
+      existing.revenue += item.revenue;
+    } else {
+      categoryTotals.set(item.category, { qty: item.qty, revenue: item.revenue });
+    }
   }
   const categoryMix = [...categoryTotals.entries()]
-    .map(([category, revenue]) => ({ category, revenue }))
+    .map(([category, v]) => ({ category, ...v }))
     .sort((a, b) => b.revenue - a.revenue);
 
-  const storeTotals = new Map<string, { revenue: number; qty: number }>();
+  const storeTotals = new Map<string, { qty: number; revenue: number; orderCount: number }>();
   for (const item of items) {
     if (!item.store_name) continue;
     const existing = storeTotals.get(item.store_name);
     if (existing) {
-      existing.revenue += item.revenue;
       existing.qty += item.qty;
+      existing.revenue += item.revenue;
     } else {
-      storeTotals.set(item.store_name, { revenue: item.revenue, qty: item.qty });
+      storeTotals.set(item.store_name, { qty: item.qty, revenue: item.revenue, orderCount: 0 });
     }
   }
+  for (const d of dailyStats) {
+    const existing = storeTotals.get(d.store_name);
+    if (existing) existing.orderCount += d.order_count;
+  }
   const storeMix = [...storeTotals.entries()]
-    .map(([storeName, v]) => ({ storeName, ...v }))
+    .map(([storeName, v]) => ({
+      storeName,
+      ...v,
+      avgTicket: v.orderCount > 0 ? Math.round(v.revenue / v.orderCount) : null,
+    }))
     .sort((a, b) => b.revenue - a.revenue);
 
-  const trend = snapshots.map((s) => ({
-    label: s.period_start,
-    revenue: s.total_revenue,
-  }));
-
-  const marginRows = menuMix
-    .filter((m) => costByName.has(m.productName))
-    .map((m) => {
-      const unitCost = costByName.get(m.productName) ?? 0;
-      const totalCost = unitCost * m.qty;
-      const margin = m.revenue - totalCost;
-      const marginRate = m.revenue > 0 ? (margin / m.revenue) * 100 : 0;
-      return { ...m, totalCost, margin, marginRate };
-    });
+  const trendMap = new Map<string, number>();
+  for (const d of dailyStats) {
+    trendMap.set(d.sale_date, (trendMap.get(d.sale_date) ?? 0) + d.total_revenue);
+  }
+  const trend = [...trendMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([label, revenue]) => ({ label, revenue }));
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold mb-1">대시보드</h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          {latest.period_start} ~ {latest.period_end} 기준
+          {from} ~ {to} · {store ?? "전체 매장"}
         </p>
       </div>
 
+      <FilterBar
+        from={from}
+        to={to}
+        store={store ?? "all"}
+        stores={stores}
+        minDate={bounds.min}
+        maxDate={bounds.max}
+        presets={presets}
+      />
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MetricCard
-          label="총 매출"
-          value={`${latest.total_revenue.toLocaleString()}원`}
-          role="accent"
-        />
-        <MetricCard label="총 판매수량" value={`${latest.total_qty.toLocaleString()}개`} />
-        <MetricCard label="메뉴 수" value={`${menuMix.length}개`} />
-        <MetricCard label="카테고리 수" value={`${categoryMix.length}개`} />
+        <MetricCard label="총 매출" value={`${totalRevenue.toLocaleString()}원`} role="accent" />
+        <MetricCard label="총 판매수량" value={`${totalQty.toLocaleString()}개`} />
+        <MetricCard label="주문 건수" value={orderCount > 0 ? `${orderCount.toLocaleString()}건` : "-"} />
+        <MetricCard label="건단가" value={avgTicket !== null ? `${avgTicket.toLocaleString()}원` : "-"} />
       </div>
 
       <TrendChart data={trend} />
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <MenuMixChart data={menuMix} />
-        <CategoryPieChart data={categoryMix} />
-      </div>
-
-      {storeMix.length > 0 && (
+      {!store && storeMix.length > 0 && (
         <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
           <p className="text-sm font-medium mb-4">매장별 매출 ({storeMix.length}개 매장)</p>
-          <table className="w-full text-sm min-w-[420px]">
+          <table className="w-full text-sm min-w-[480px]">
             <thead>
               <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
                 <th className="py-2 font-normal">매장</th>
                 <th className="py-2 font-normal text-right">판매수량</th>
                 <th className="py-2 font-normal text-right">매출</th>
+                <th className="py-2 font-normal text-right">건단가</th>
                 <th className="py-2 font-normal text-right">비중</th>
               </tr>
             </thead>
@@ -147,11 +181,9 @@ export default async function DashboardPage() {
                   <td className="py-2">{s.storeName}</td>
                   <td className="py-2 text-right">{s.qty.toLocaleString()}</td>
                   <td className="py-2 text-right">{s.revenue.toLocaleString()}원</td>
+                  <td className="py-2 text-right">{s.avgTicket !== null ? `${s.avgTicket.toLocaleString()}원` : "-"}</td>
                   <td className="py-2 text-right">
-                    {latest.total_revenue > 0
-                      ? ((s.revenue / latest.total_revenue) * 100).toFixed(1)
-                      : "0.0"}
-                    %
+                    {totalRevenue > 0 ? ((s.revenue / totalRevenue) * 100).toFixed(1) : "0.0"}%
                   </td>
                 </tr>
               ))}
@@ -160,58 +192,9 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {marginRows.length > 0 && (
-        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
-          <p className="text-sm font-medium mb-4">메뉴별 마진 (원가 입력된 메뉴만)</p>
-          <table className="w-full text-sm min-w-[480px]">
-            <thead>
-              <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
-                <th className="py-2 font-normal">메뉴</th>
-                <th className="py-2 font-normal text-right">매출</th>
-                <th className="py-2 font-normal text-right">원가</th>
-                <th className="py-2 font-normal text-right">마진</th>
-                <th className="py-2 font-normal text-right">마진율</th>
-              </tr>
-            </thead>
-            <tbody>
-              {marginRows.map((row) => (
-                <tr key={row.productName} className="border-b border-[var(--border)] last:border-0">
-                  <td className="py-2">{row.productName}</td>
-                  <td className="py-2 text-right">{row.revenue.toLocaleString()}원</td>
-                  <td className="py-2 text-right">{row.totalCost.toLocaleString()}원</td>
-                  <td className="py-2 text-right">{row.margin.toLocaleString()}원</td>
-                  <td className="py-2 text-right">{row.marginRate.toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
-        <p className="text-sm font-medium mb-4">전체 메뉴 목록</p>
-        <table className="w-full text-sm min-w-[480px]">
-          <thead>
-            <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
-              <th className="py-2 font-normal">메뉴</th>
-              <th className="py-2 font-normal">카테고리</th>
-              <th className="py-2 font-normal text-right">수량</th>
-              <th className="py-2 font-normal text-right">매출</th>
-              <th className="py-2 font-normal text-right">비중</th>
-            </tr>
-          </thead>
-          <tbody>
-            {menuMix.map((row) => (
-              <tr key={row.productName} className="border-b border-[var(--border)] last:border-0">
-                <td className="py-2">{row.productName}</td>
-                <td className="py-2 text-[var(--text-secondary)]">{row.category}</td>
-                <td className="py-2 text-right">{row.qty.toLocaleString()}</td>
-                <td className="py-2 text-right">{row.revenue.toLocaleString()}원</td>
-                <td className="py-2 text-right">{row.share.toFixed(1)}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4">
+        <p className="text-sm font-medium mb-4">메뉴 믹스</p>
+        <MenuMixSection menuMix={menuMix} categoryMix={categoryMix} />
       </div>
     </div>
   );

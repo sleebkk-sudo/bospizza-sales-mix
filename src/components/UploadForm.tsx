@@ -14,7 +14,7 @@ export function UploadForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || !periodStart || !periodEnd) return;
+    if (!file) return;
 
     setStatus({ kind: "loading" });
     const formData = new FormData();
@@ -37,22 +37,24 @@ export function UploadForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
       <div>
-        <label className="block text-sm text-[var(--text-secondary)] mb-2">기간 시작일</label>
+        <label className="block text-sm text-[var(--text-secondary)] mb-2">
+          기간 시작일 <span className="text-[var(--text-muted)]">(브랜드 리포트는 파일에서 자동 인식, 비워둬도 됨)</span>
+        </label>
         <input
           type="date"
           value={periodStart}
           onChange={(e) => setPeriodStart(e.target.value)}
-          required
           className="w-full h-9 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--fill-accent)]"
         />
       </div>
       <div>
-        <label className="block text-sm text-[var(--text-secondary)] mb-2">기간 종료일</label>
+        <label className="block text-sm text-[var(--text-secondary)] mb-2">
+          기간 종료일 <span className="text-[var(--text-muted)]">(자체 템플릿 업로드 시에만 필요)</span>
+        </label>
         <input
           type="date"
           value={periodEnd}
           onChange={(e) => setPeriodEnd(e.target.value)}
-          required
           className="w-full h-9 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-3 text-sm outline-none focus:ring-2 focus:ring-[var(--fill-accent)]"
         />
       </div>

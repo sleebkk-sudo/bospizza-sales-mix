@@ -14,14 +14,11 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const file = formData.get("file");
-  const periodStart = String(formData.get("periodStart") ?? "");
-  const periodEnd = String(formData.get("periodEnd") ?? "");
+  const formPeriodStart = String(formData.get("periodStart") ?? "").trim() || null;
+  const formPeriodEnd = String(formData.get("periodEnd") ?? "").trim() || null;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
-  }
-  if (!periodStart || !periodEnd) {
-    return NextResponse.json({ error: "기간을 입력해주세요." }, { status: 400 });
   }
 
   let parsed;
@@ -31,6 +28,15 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "파일을 읽지 못했습니다.";
     return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  const periodStart = parsed.periodStart ?? formPeriodStart;
+  const periodEnd = parsed.periodEnd ?? formPeriodEnd;
+  if (!periodStart || !periodEnd) {
+    return NextResponse.json(
+      { error: "기간을 입력해주세요 (파일에 날짜 정보가 없어 직접 입력이 필요합니다)." },
+      { status: 400 }
+    );
   }
 
   const { data: snapshot, error: snapshotError } = await supabase
@@ -65,6 +71,7 @@ export async function POST(request: NextRequest) {
       qty: row.qty,
       revenue: row.revenue,
       store_name: row.storeName,
+      sale_date: row.saleDate ?? periodStart,
     }))
   );
 
@@ -75,10 +82,41 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (parsed.dailyStats.length > 0) {
+    const { error: statsError } = await supabase.from("store_daily_stats").upsert(
+      parsed.dailyStats.map((d) => ({
+        sale_date: d.saleDate,
+        store_name: d.storeName,
+        order_count: d.orderCount,
+        total_qty: d.totalQty,
+        total_revenue: d.totalRevenue,
+      })),
+      { onConflict: "sale_date,store_name" }
+    );
+    if (statsError) {
+      return NextResponse.json(
+        { error: `일별 통계 저장 실패: ${statsError.message}` },
+        { status: 500 }
+      );
+    }
+  }
+
+  const storeNames = [...new Set(parsed.rows.map((r) => r.storeName).filter((s): s is string => !!s))];
+  if (storeNames.length > 0) {
+    await supabase
+      .from("stores")
+      .upsert(
+        storeNames.map((name) => ({ name })),
+        { onConflict: "name", ignoreDuplicates: true }
+      );
+  }
+
   return NextResponse.json({
     ok: true,
     rows: parsed.rows.length,
     totalQty: parsed.totalQty,
     totalRevenue: parsed.totalRevenue,
+    periodStart,
+    periodEnd,
   });
 }
