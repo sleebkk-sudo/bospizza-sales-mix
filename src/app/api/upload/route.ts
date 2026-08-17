@@ -5,9 +5,11 @@ import { parseSalesReport } from "@/lib/parseSalesReport";
 import { supabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!(await verifySessionToken(token))) {
-    return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (process.env.DASHBOARD_PASSWORD) {
+    const token = (await cookies()).get(SESSION_COOKIE)?.value;
+    if (!(await verifySessionToken(token))) {
+      return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+    }
   }
 
   const formData = await request.formData();

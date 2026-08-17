@@ -45,7 +45,7 @@ export async function verifySessionToken(
 
 export function checkPassword(password: string): boolean {
   const expected = process.env.DASHBOARD_PASSWORD;
-  if (!expected) throw new Error("DASHBOARD_PASSWORD must be set in the environment");
+  if (!expected) return false;
   return password === expected;
 }
 
