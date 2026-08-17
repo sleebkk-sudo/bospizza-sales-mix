@@ -17,6 +17,7 @@ export type SalesItem = {
   product_name: string;
   qty: number;
   revenue: number;
+  store_name: string | null;
 };
 
 export type MenuCost = {

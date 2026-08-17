@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
       product_name: row.productName,
       qty: row.qty,
       revenue: row.revenue,
+      store_name: row.storeName,
     }))
   );
 

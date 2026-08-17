@@ -38,13 +38,29 @@ export default async function DashboardPage() {
   const items = await getItemsForSnapshot(latest.id);
   const costByName = new Map(costs.map((c) => [c.name, c.cost]));
 
-  const menuMix = items
-    .map((item) => ({
-      productName: item.product_name,
-      category: item.category,
-      revenue: item.revenue,
-      qty: item.qty,
-      share: latest.total_revenue > 0 ? (item.revenue / latest.total_revenue) * 100 : 0,
+  // 매장별로 나뉘어 저장된 행을 메뉴 단위로 다시 합산 (요기요 브랜드 리포트는 매장×메뉴 단위로 저장됨)
+  const productTotals = new Map<string, { category: string; qty: number; revenue: number }>();
+  for (const item of items) {
+    const existing = productTotals.get(item.product_name);
+    if (existing) {
+      existing.qty += item.qty;
+      existing.revenue += item.revenue;
+    } else {
+      productTotals.set(item.product_name, {
+        category: item.category,
+        qty: item.qty,
+        revenue: item.revenue,
+      });
+    }
+  }
+
+  const menuMix = [...productTotals.entries()]
+    .map(([productName, v]) => ({
+      productName,
+      category: v.category,
+      revenue: v.revenue,
+      qty: v.qty,
+      share: latest.total_revenue > 0 ? (v.revenue / latest.total_revenue) * 100 : 0,
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
@@ -54,6 +70,21 @@ export default async function DashboardPage() {
   }
   const categoryMix = [...categoryTotals.entries()]
     .map(([category, revenue]) => ({ category, revenue }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const storeTotals = new Map<string, { revenue: number; qty: number }>();
+  for (const item of items) {
+    if (!item.store_name) continue;
+    const existing = storeTotals.get(item.store_name);
+    if (existing) {
+      existing.revenue += item.revenue;
+      existing.qty += item.qty;
+    } else {
+      storeTotals.set(item.store_name, { revenue: item.revenue, qty: item.qty });
+    }
+  }
+  const storeMix = [...storeTotals.entries()]
+    .map(([storeName, v]) => ({ storeName, ...v }))
     .sort((a, b) => b.revenue - a.revenue);
 
   const trend = snapshots.map((s) => ({
@@ -97,6 +128,37 @@ export default async function DashboardPage() {
         <MenuMixChart data={menuMix} />
         <CategoryPieChart data={categoryMix} />
       </div>
+
+      {storeMix.length > 0 && (
+        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
+          <p className="text-sm font-medium mb-4">매장별 매출 ({storeMix.length}개 매장)</p>
+          <table className="w-full text-sm min-w-[420px]">
+            <thead>
+              <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
+                <th className="py-2 font-normal">매장</th>
+                <th className="py-2 font-normal text-right">판매수량</th>
+                <th className="py-2 font-normal text-right">매출</th>
+                <th className="py-2 font-normal text-right">비중</th>
+              </tr>
+            </thead>
+            <tbody>
+              {storeMix.map((s) => (
+                <tr key={s.storeName} className="border-b border-[var(--border)] last:border-0">
+                  <td className="py-2">{s.storeName}</td>
+                  <td className="py-2 text-right">{s.qty.toLocaleString()}</td>
+                  <td className="py-2 text-right">{s.revenue.toLocaleString()}원</td>
+                  <td className="py-2 text-right">
+                    {latest.total_revenue > 0
+                      ? ((s.revenue / latest.total_revenue) * 100).toFixed(1)
+                      : "0.0"}
+                    %
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {marginRows.length > 0 && (
         <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">

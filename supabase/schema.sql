@@ -23,11 +23,14 @@ create table if not exists menu_sales_items (
   category text not null,
   product_name text not null,
   qty integer not null,
-  revenue bigint not null
+  revenue bigint not null,
+  store_name text
 );
 
 create index if not exists menu_sales_items_snapshot_id_idx
   on menu_sales_items (snapshot_id);
+create index if not exists menu_sales_items_store_name_idx
+  on menu_sales_items (store_name);
 
 -- ============================================================
 -- 2. 메뉴별 원가 — 매출 대비 마진 계산용. name은 업로드 파일의
