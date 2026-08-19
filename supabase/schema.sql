@@ -19,7 +19,11 @@ create table if not exists menu_sales_snapshots (
 
 create table if not exists menu_sales_items (
   id uuid primary key default gen_random_uuid(),
-  snapshot_id uuid not null references menu_sales_snapshots(id) on delete cascade,
+  -- 파일 업로드로 들어온 행만 snapshot_id가 있음 (스냅샷 통째로 교체하는
+  -- 방식). 캡처 입력으로 들어온 행은 snapshot_id가 null이고 대신
+  -- (sale_date, store_name, product_name, channel) unique 제약으로
+  -- 여러 번 캡처해도 값이 누적되도록 처리 (saveSalesCapture 참고).
+  snapshot_id uuid references menu_sales_snapshots(id) on delete cascade,
   category text not null,
   product_name text not null,
   qty integer not null,
@@ -28,8 +32,9 @@ create table if not exists menu_sales_items (
   -- 배달앱 브랜드 리포트는 파일 자체의 날짜를 담고 있어 이 값이 채워짐.
   -- 자체 4컬럼 템플릿은 업로드 시 입력한 기간(period_start)을 그대로 씀.
   sale_date date,
-  -- "요기요" / "배민" — 자체 템플릿 업로드는 null.
-  channel text
+  -- "요기요" / "배민" / "쿠팡이츠" — 자체 템플릿 업로드는 null.
+  channel text,
+  constraint menu_sales_items_capture_unique unique (sale_date, store_name, product_name, channel)
 );
 
 create index if not exists menu_sales_items_snapshot_id_idx

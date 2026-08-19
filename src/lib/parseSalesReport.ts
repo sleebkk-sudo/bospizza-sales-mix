@@ -58,7 +58,7 @@ const GENERIC_HEADER_ALIASES: Record<string, "category" | "productName" | "qty" 
 const DRINK_KEYWORDS = ["콜라", "사이다", "환타", "스프라이트", "밀키스", "제로"];
 const KEY_SEP = "|||";
 
-function categorizeMenuName(name: string): string {
+export function categorizeMenuName(name: string): string {
   if (name.includes("+사이드+음료") || name.includes("세트")) return "세트";
   if (name.includes("피자")) return "피자";
   if (name.includes("스파게티") || name.includes("파스타")) return "파스타";

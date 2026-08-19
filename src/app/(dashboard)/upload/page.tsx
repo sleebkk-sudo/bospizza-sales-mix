@@ -1,6 +1,12 @@
 import { UploadForm } from "@/components/UploadForm";
+import { SalesCaptureForm } from "@/components/SalesCaptureForm";
+import { getStoreNames } from "@/lib/data";
 
-export default function UploadPage() {
+export const dynamic = "force-dynamic";
+
+export default async function UploadPage() {
+  const stores = await getStoreNames();
+
   return (
     <div className="space-y-6">
       <div>
@@ -36,6 +42,8 @@ export default function UploadPage() {
       </div>
 
       <UploadForm />
+
+      <SalesCaptureForm stores={stores} />
     </div>
   );
 }
