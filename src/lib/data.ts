@@ -31,12 +31,6 @@ export type ComboRow = {
   qty: number;
 };
 
-export type MenuCost = {
-  name: string;
-  cost: number;
-  note: string | null;
-};
-
 const CHANNELS = ["요기요", "배민", "쿠팡이츠"] as const;
 
 export type Review = {
@@ -286,15 +280,4 @@ export async function saveSalesCapture(params: {
   await supabase.from("stores").upsert({ name: storeName }, { onConflict: "name", ignoreDuplicates: true });
 
   return { error: null };
-}
-
-export async function getMenuCosts(): Promise<MenuCost[]> {
-  const { data } = await supabase.from("menu_costs").select("*").order("name");
-  return (data ?? []) as MenuCost[];
-}
-
-export async function upsertMenuCost(name: string, cost: number, note: string): Promise<void> {
-  await supabase
-    .from("menu_costs")
-    .upsert({ name, cost, note: note || null, updated_at: new Date().toISOString() });
 }

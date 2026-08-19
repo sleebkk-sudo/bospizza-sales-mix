@@ -5,7 +5,6 @@ const links = [
   { href: "/", label: "대시보드" },
   { href: "/upload", label: "업로드" },
   { href: "/reviews", label: "리뷰" },
-  { href: "/costs", label: "원가 관리" },
 ];
 
 export function Nav() {
