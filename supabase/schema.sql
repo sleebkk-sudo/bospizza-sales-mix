@@ -27,7 +27,9 @@ create table if not exists menu_sales_items (
   store_name text,
   -- 배달앱 브랜드 리포트는 파일 자체의 날짜를 담고 있어 이 값이 채워짐.
   -- 자체 4컬럼 템플릿은 업로드 시 입력한 기간(period_start)을 그대로 씀.
-  sale_date date
+  sale_date date,
+  -- "요기요" / "배민" — 자체 템플릿 업로드는 null.
+  channel text
 );
 
 create index if not exists menu_sales_items_snapshot_id_idx
@@ -36,6 +38,8 @@ create index if not exists menu_sales_items_store_name_idx
   on menu_sales_items (store_name);
 create index if not exists menu_sales_items_sale_date_idx
   on menu_sales_items (sale_date);
+create index if not exists menu_sales_items_channel_idx
+  on menu_sales_items (channel);
 
 -- ============================================================
 -- 2. 메뉴별 원가 — 매출 대비 마진 계산용. name은 업로드 파일의
@@ -65,10 +69,31 @@ create table if not exists store_daily_stats (
   id uuid primary key default gen_random_uuid(),
   sale_date date not null,
   store_name text not null,
+  channel text not null,
   order_count integer not null,
   total_qty integer not null,
   total_revenue bigint not null,
-  unique (sale_date, store_name)
+  unique (sale_date, store_name, channel)
 );
 create index if not exists store_daily_stats_sale_date_idx
   on store_daily_stats (sale_date);
+
+-- ============================================================
+-- 5. 반반피자류 맛 조합 — 메뉴명에 "반반"이 포함된 상품의 옵션에서 실제로
+--    고른 두 가지 맛 조합. base_product는 어떤 상품(반반피자, 반반피자
+--    +사이드+음료 등)이었는지, combo_label은 정렬된 "맛A + 맛B" 문자열.
+-- ============================================================
+create table if not exists menu_option_combos (
+  id uuid primary key default gen_random_uuid(),
+  sale_date date not null,
+  store_name text,
+  channel text,
+  base_product text not null,
+  combo_label text not null,
+  qty integer not null,
+  unique (sale_date, store_name, channel, base_product, combo_label)
+);
+create index if not exists menu_option_combos_base_product_idx
+  on menu_option_combos (base_product);
+create index if not exists menu_option_combos_sale_date_idx
+  on menu_option_combos (sale_date);

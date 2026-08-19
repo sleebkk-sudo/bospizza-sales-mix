@@ -1,10 +1,11 @@
 import Link from "next/link";
 
-function buildHref(from: string, to: string, store: string) {
+function buildHref(from: string, to: string, store: string, channel: string) {
   const sp = new URLSearchParams();
   sp.set("from", from);
   sp.set("to", to);
   if (store !== "all") sp.set("store", store);
+  if (channel !== "all") sp.set("channel", channel);
   return `/?${sp.toString()}`;
 }
 
@@ -12,7 +13,9 @@ export function FilterBar({
   from,
   to,
   store,
+  channel,
   stores,
+  channels,
   minDate,
   maxDate,
   presets,
@@ -20,7 +23,9 @@ export function FilterBar({
   from: string;
   to: string;
   store: string;
+  channel: string;
   stores: string[];
+  channels: readonly string[];
   minDate: string;
   maxDate: string;
   presets: { label: string; from: string; to: string }[];
@@ -31,7 +36,7 @@ export function FilterBar({
         {presets.map((p) => (
           <Link
             key={p.label}
-            href={buildHref(p.from, p.to, store)}
+            href={buildHref(p.from, p.to, store, channel)}
             className="text-xs px-2.5 py-1.5 rounded-md border"
             style={
               from === p.from && to === p.to
@@ -70,6 +75,18 @@ export function FilterBar({
           {stores.map((s) => (
             <option key={s} value={s}>
               {s}
+            </option>
+          ))}
+        </select>
+        <select
+          name="channel"
+          defaultValue={channel}
+          className="h-8 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 text-xs"
+        >
+          <option value="all">전체 배달앱</option>
+          {channels.map((c) => (
+            <option key={c} value={c}>
+              {c}
             </option>
           ))}
         </select>

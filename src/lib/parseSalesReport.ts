@@ -7,19 +7,33 @@ export type ParsedSalesRow = {
   revenue: number;
   storeName: string | null;
   saleDate: string | null;
+  channel: string | null;
 };
 
 export type ParsedDailyStat = {
   storeName: string;
   saleDate: string;
+  channel: string;
   orderCount: number;
   totalQty: number;
   totalRevenue: number;
 };
 
+// 반반피자류(메뉴명에 "반반" 포함) 주문에서 실제로 고른 두 가지 맛의 조합.
+// 예: baseProduct "반반피자", comboLabel "더블치즈 피자 + 슈퍼콤비네이션 피자".
+export type ParsedComboRow = {
+  saleDate: string;
+  storeName: string | null;
+  channel: string;
+  baseProduct: string;
+  comboLabel: string;
+  qty: number;
+};
+
 export type ParsedSalesReport = {
   rows: ParsedSalesRow[];
   dailyStats: ParsedDailyStat[];
+  combos: ParsedComboRow[];
   totalQty: number;
   totalRevenue: number;
   // 파일에서 날짜를 읽을 수 있으면 자동으로 채워짐 (브랜드 주문 리포트). 없으면 null —
@@ -50,6 +64,15 @@ function categorizeMenuName(name: string): string {
   if (name.includes("스파게티") || name.includes("파스타")) return "파스타";
   if (DRINK_KEYWORDS.some((k) => name.includes(k))) return "음료";
   return "사이드";
+}
+
+// "반반피자" 등에서 고른 개별 맛 옵션인지 판별 (사이즈/도우/리뷰이벤트 등 다른 옵션과 구분).
+function isFlavorOptionName(name: string): boolean {
+  return name.endsWith("피자");
+}
+
+function comboLabelFor(flavors: string[]): string {
+  return [...flavors].sort((a, b) => a.localeCompare(b, "ko")).join(" + ");
 }
 
 function toNumber(value: unknown): number {
@@ -142,62 +165,106 @@ function readSheetRows(buffer: ArrayBuffer): Record<string, unknown>[] {
 // 프랜차이즈명/가게명/메뉴유형(MENU|OPTION)/날짜/주문ID 컬럼이 있는 원본 export 형식을 그대로 지원한다.
 // MENU 행만 실제 매출을 담고 있고, OPTION 행(사이즈/도우 선택 등)은 그 아래 딸린
 // 옵션 선택일 뿐이라 매출 집계에서 제외한다 (이미 상위 MENU 행의 주문금액에 포함됨).
+// 다만 반반피자류의 "맛 선택" 옵션(예: "더블치즈 피자")은 조합 통계용으로 따로 모은다.
 // 건단가 계산을 위해 (매장, 날짜)별 고유 주문ID 개수도 함께 집계한다.
 function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesReport {
+  const CHANNEL = "요기요";
   const productGroups = new Map<string, ParsedSalesRow>();
   const orderIdsByStoreDate = new Map<string, Set<string>>();
   const revenueByStoreDate = new Map<string, number>();
   const qtyByStoreDate = new Map<string, number>();
+  const comboGroups = new Map<string, ParsedComboRow>();
   let minDate: string | null = null;
   let maxDate: string | null = null;
 
+  // 반반피자 조합을 같은 주문의 MENU 행과 연결하려면 주문 단위로 묶어야 한다.
+  const orderGroups = new Map<string, Record<string, unknown>[]>();
+  const orderKeyList: string[] = [];
   for (const record of raw) {
-    const storeName = normalizeStoreName(String(record["가게명"] ?? "").trim()) || "미상";
-    const saleDate = String(record["날짜"] ?? "").trim() || null;
+    const orderId = String(record["주문ID"] ?? record["주문번호"] ?? "").trim();
+    const groupKey = orderId || `__row_${orderKeyList.length}`;
+    if (!orderGroups.has(groupKey)) {
+      orderGroups.set(groupKey, []);
+      orderKeyList.push(groupKey);
+    }
+    orderGroups.get(groupKey)!.push(record);
+  }
+
+  for (const groupKey of orderKeyList) {
+    const orderRows = orderGroups.get(groupKey)!;
+    const first = orderRows[0];
+    const storeName = normalizeStoreName(String(first["가게명"] ?? "").trim()) || "미상";
+    const saleDate = String(first["날짜"] ?? "").trim() || null;
+    const orderId = String(first["주문ID"] ?? first["주문번호"] ?? "").trim();
 
     if (saleDate) {
       if (!minDate || saleDate < minDate) minDate = saleDate;
       if (!maxDate || saleDate > maxDate) maxDate = saleDate;
     }
 
-    const menuType = String(record["메뉴유형"] ?? "").trim();
-    if (menuType !== "MENU") continue;
+    const menuRows = orderRows.filter((r) => String(r["메뉴유형"] ?? "").trim() === "MENU");
+    if (menuRows.length === 0) continue;
 
-    const productName = String(record["메뉴명"] ?? "").trim();
-    if (!productName) continue;
-
-    // 주문ID는 MENU 행 기준으로만 센다 — OPTION 행만 있고 MENU 행이 아직 없는 주문(예:
+    // 주문ID는 MENU 행이 있는 주문만 센다 — OPTION 행만 있고 MENU 행이 아직 없는 주문(예:
     // 리포트를 하루 중간에 받아서 아직 결제 완료 전인 주문)까지 건수에 잡히는 걸 방지.
-    const orderId = String(record["주문ID"] ?? record["주문번호"] ?? "").trim();
     if (orderId && saleDate) {
       const sdKey = `${storeName}${KEY_SEP}${saleDate}`;
       if (!orderIdsByStoreDate.has(sdKey)) orderIdsByStoreDate.set(sdKey, new Set());
       orderIdsByStoreDate.get(sdKey)!.add(orderId);
     }
 
-    const qty = toNumber(record["메뉴or옵션수량"]);
-    const revenue = toNumber(record["주문금액"]);
-    const key = `${storeName}${KEY_SEP}${productName}${KEY_SEP}${saleDate ?? ""}`;
+    const flavorOptions = orderRows
+      .filter((r) => String(r["메뉴유형"] ?? "").trim() === "OPTION")
+      .map((r) => String(r["옵션명"] ?? "").trim())
+      .filter((name) => isFlavorOptionName(name));
+    let flavorCursor = 0;
 
-    const existing = productGroups.get(key);
-    if (existing) {
-      existing.qty += qty;
-      existing.revenue += revenue;
-    } else {
-      productGroups.set(key, {
-        category: categorizeMenuName(productName),
-        productName,
-        qty,
-        revenue,
-        storeName,
-        saleDate,
-      });
-    }
+    for (const record of menuRows) {
+      const productName = String(record["메뉴명"] ?? "").trim();
+      if (!productName) continue;
 
-    if (saleDate) {
-      const sdKey = `${storeName}${KEY_SEP}${saleDate}`;
-      revenueByStoreDate.set(sdKey, (revenueByStoreDate.get(sdKey) ?? 0) + revenue);
-      qtyByStoreDate.set(sdKey, (qtyByStoreDate.get(sdKey) ?? 0) + qty);
+      const qty = toNumber(record["메뉴or옵션수량"]);
+      const revenue = toNumber(record["주문금액"]);
+      const key = `${storeName}${KEY_SEP}${productName}${KEY_SEP}${saleDate ?? ""}`;
+
+      const existing = productGroups.get(key);
+      if (existing) {
+        existing.qty += qty;
+        existing.revenue += revenue;
+      } else {
+        productGroups.set(key, {
+          category: categorizeMenuName(productName),
+          productName,
+          qty,
+          revenue,
+          storeName,
+          saleDate,
+          channel: CHANNEL,
+        });
+      }
+
+      if (saleDate) {
+        const sdKey = `${storeName}${KEY_SEP}${saleDate}`;
+        revenueByStoreDate.set(sdKey, (revenueByStoreDate.get(sdKey) ?? 0) + revenue);
+        qtyByStoreDate.set(sdKey, (qtyByStoreDate.get(sdKey) ?? 0) + qty);
+      }
+
+      if (saleDate && productName.includes("반반") && flavorCursor + 1 < flavorOptions.length) {
+        const comboLabel = comboLabelFor([flavorOptions[flavorCursor], flavorOptions[flavorCursor + 1]]);
+        flavorCursor += 2;
+        const comboKey = `${storeName}${KEY_SEP}${saleDate}${KEY_SEP}${productName}${KEY_SEP}${comboLabel}`;
+        const existingCombo = comboGroups.get(comboKey);
+        if (existingCombo) existingCombo.qty += qty;
+        else
+          comboGroups.set(comboKey, {
+            saleDate,
+            storeName,
+            channel: CHANNEL,
+            baseProduct: productName,
+            comboLabel,
+            qty,
+          });
+      }
     }
   }
 
@@ -211,6 +278,7 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
     return {
       storeName,
       saleDate,
+      channel: CHANNEL,
       orderCount: orderIds.size,
       totalQty: qtyByStoreDate.get(key) ?? 0,
       totalRevenue: revenueByStoreDate.get(key) ?? 0,
@@ -220,7 +288,15 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
   const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
   const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
 
-  return { rows, dailyStats, totalQty, totalRevenue, periodStart: minDate, periodEnd: maxDate };
+  return {
+    rows,
+    dailyStats,
+    combos: [...comboGroups.values()],
+    totalQty,
+    totalRevenue,
+    periodStart: minDate,
+    periodEnd: maxDate,
+  };
 }
 
 // 배민(배달의민족) "가게별 주문 상세(취소, 옵션 포함)" 리포트.
@@ -228,12 +304,15 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
 // 그 상품 인스턴스의 최종 금액(옵션까지 반영된 값)이 모든 옵션 행에 동일하게 반복된다
 // — 즉 옵션 총 금액을 또 더하면 이중 집계된다. 실제 매출은 (주문번호, 상품명, 상품금액)이
 // 연속으로 반복되는 구간을 한 상품 인스턴스로 묶어 그 금액을 한 번만 센다.
+// "피자 선택" 옵션그룹은 반반피자류의 맛 조합 통계용으로 따로 모은다.
 // 주문상태가 "주문완료"가 아닌 행(주문취소 등)은 전부 제외한다.
 function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSalesReport {
+  const CHANNEL = "배민";
   const productGroups = new Map<string, ParsedSalesRow>();
   const qtyByStoreDate = new Map<string, number>();
   const revenueByStoreDate = new Map<string, number>();
   const orderCountByStoreDate = new Map<string, number>();
+  const comboGroups = new Map<string, ParsedComboRow>();
   const seenOrderIds = new Set<string>();
   let minDate: string | null = null;
   let maxDate: string | null = null;
@@ -242,6 +321,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
   let curProductName: string | null = null;
   let curProductAmount: string | null = null;
   let curAccum: { storeName: string; saleDate: string; category: string; productName: string; qty: number; revenue: number } | null = null;
+  let curFlavors: string[] = [];
 
   function flushCurrent() {
     if (!curAccum) return;
@@ -258,9 +338,28 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
         revenue: curAccum.revenue,
         storeName: curAccum.storeName,
         saleDate: curAccum.saleDate,
+        channel: CHANNEL,
       });
     }
+
+    if (curAccum.productName.includes("반반") && curFlavors.length >= 2) {
+      const comboLabel = comboLabelFor(curFlavors.slice(0, 2));
+      const comboKey = `${curAccum.storeName}${KEY_SEP}${curAccum.saleDate}${KEY_SEP}${curAccum.productName}${KEY_SEP}${comboLabel}`;
+      const existingCombo = comboGroups.get(comboKey);
+      if (existingCombo) existingCombo.qty += curAccum.qty;
+      else
+        comboGroups.set(comboKey, {
+          saleDate: curAccum.saleDate,
+          storeName: curAccum.storeName,
+          channel: CHANNEL,
+          baseProduct: curAccum.productName,
+          comboLabel,
+          qty: curAccum.qty,
+        });
+    }
+
     curAccum = null;
+    curFlavors = [];
   }
 
   for (const record of raw) {
@@ -306,7 +405,12 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
       const sdKey = `${storeName}${KEY_SEP}${saleDate}`;
       qtyByStoreDate.set(sdKey, (qtyByStoreDate.get(sdKey) ?? 0) + qty);
     }
-    // 같은 인스턴스의 추가 옵션 행은 상품 총 금액에 이미 반영되어 있으므로 무시한다.
+
+    const optionGroup = String(record["옵션그룹이름"] ?? "").trim();
+    const optionName = String(record["옵션명"] ?? "").trim();
+    if (optionName && (optionGroup === "피자 선택" || isFlavorOptionName(optionName))) {
+      curFlavors.push(optionName);
+    }
   }
   flushCurrent();
 
@@ -320,6 +424,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
     return {
       storeName,
       saleDate,
+      channel: CHANNEL,
       orderCount,
       totalQty: qtyByStoreDate.get(key) ?? 0,
       totalRevenue: revenueByStoreDate.get(key) ?? 0,
@@ -329,10 +434,18 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
   const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
   const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
 
-  return { rows, dailyStats, totalQty, totalRevenue, periodStart: minDate, periodEnd: maxDate };
+  return {
+    rows,
+    dailyStats,
+    combos: [...comboGroups.values()],
+    totalQty,
+    totalRevenue,
+    periodStart: minDate,
+    periodEnd: maxDate,
+  };
 }
 
-// 자체 정의한 4컬럼 템플릿 (카테고리, 메뉴명, 수량, 매출액) — 매장/날짜 구분 없음.
+// 자체 정의한 4컬럼 템플릿 (카테고리, 메뉴명, 수량, 매출액) — 매장/날짜/채널 구분 없음.
 function parseGenericTemplate(raw: Record<string, unknown>[]): ParsedSalesReport {
   const firstRowKeys = Object.keys(raw[0]);
   const fieldByKey = new Map<string, "category" | "productName" | "qty" | "revenue">();
@@ -369,6 +482,7 @@ function parseGenericTemplate(raw: Record<string, unknown>[]): ParsedSalesReport
       revenue: row.revenue ?? 0,
       storeName: null,
       saleDate: null,
+      channel: null,
     });
   }
 
@@ -378,7 +492,7 @@ function parseGenericTemplate(raw: Record<string, unknown>[]): ParsedSalesReport
 
   const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
   const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
-  return { rows, dailyStats: [], totalQty, totalRevenue, periodStart: null, periodEnd: null };
+  return { rows, dailyStats: [], combos: [], totalQty, totalRevenue, periodStart: null, periodEnd: null };
 }
 
 export function parseSalesReport(buffer: ArrayBuffer): ParsedSalesReport {

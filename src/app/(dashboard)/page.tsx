@@ -4,7 +4,14 @@ import { MetricCard } from "@/components/MetricCard";
 import { FilterBar } from "@/components/FilterBar";
 import { MenuMixSection } from "@/components/MenuMixSection";
 import { TrendChart } from "@/components/TrendChart";
-import { getDateBounds, getStoreNames, getItemsInRange, getDailyStatsInRange } from "@/lib/data";
+import {
+  getDateBounds,
+  getStoreNames,
+  getChannels,
+  getItemsInRange,
+  getDailyStatsInRange,
+  getCombosInRange,
+} from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +43,11 @@ function buildPresets(minDate: string, maxDate: string) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; store?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; store?: string; channel?: string }>;
 }) {
   const sp = await searchParams;
   const [bounds, stores] = await Promise.all([getDateBounds(), getStoreNames()]);
+  const channels = getChannels();
 
   if (!bounds.min || !bounds.max) {
     return (
@@ -63,10 +71,12 @@ export default async function DashboardPage({
   const from = clamp(sp.from || defaultRange.from, bounds.min, bounds.max);
   const to = clamp(sp.to || defaultRange.to, bounds.min, bounds.max);
   const store = sp.store && sp.store !== "all" ? sp.store : null;
+  const channel = sp.channel && sp.channel !== "all" ? sp.channel : null;
 
-  const [items, dailyStats] = await Promise.all([
-    getItemsInRange(from, to, store),
-    getDailyStatsInRange(from, to, store),
+  const [items, dailyStats, combos] = await Promise.all([
+    getItemsInRange(from, to, store, channel),
+    getDailyStatsInRange(from, to, store, channel),
+    getCombosInRange(from, to, store, channel),
   ]);
 
   const totalRevenue = items.reduce((sum, i) => sum + i.revenue, 0);
@@ -134,12 +144,21 @@ export default async function DashboardPage({
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([label, revenue]) => ({ label, revenue }));
 
+  const comboTotals = new Map<string, number>();
+  for (const c of combos) {
+    comboTotals.set(c.combo_label, (comboTotals.get(c.combo_label) ?? 0) + c.qty);
+  }
+  const comboTotalQty = [...comboTotals.values()].reduce((s, q) => s + q, 0);
+  const comboMix = [...comboTotals.entries()]
+    .map(([comboLabel, qty]) => ({ comboLabel, qty }))
+    .sort((a, b) => b.qty - a.qty);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold mb-1">대시보드</h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          {from} ~ {to} · {store ?? "전체 매장"}
+          {from} ~ {to} · {store ?? "전체 매장"} · {channel ?? "전체 배달앱"}
         </p>
       </div>
 
@@ -147,7 +166,9 @@ export default async function DashboardPage({
         from={from}
         to={to}
         store={store ?? "all"}
+        channel={channel ?? "all"}
         stores={stores}
+        channels={channels}
         minDate={bounds.min}
         maxDate={bounds.max}
         presets={presets}
@@ -196,6 +217,35 @@ export default async function DashboardPage({
         <p className="text-sm font-medium mb-4">메뉴 믹스</p>
         <MenuMixSection menuMix={menuMix} categoryMix={categoryMix} />
       </div>
+
+      {comboMix.length > 0 && (
+        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
+          <p className="text-sm font-medium mb-1">반반피자 조합별 판매비중</p>
+          <p className="text-xs text-[var(--text-muted)] mb-4">
+            반반피자류 주문에서 고른 두 가지 맛 조합 기준 (매출이 아닌 주문건수 비중)
+          </p>
+          <table className="w-full text-sm min-w-[420px]">
+            <thead>
+              <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
+                <th className="py-2 font-normal">맛 조합</th>
+                <th className="py-2 font-normal text-right">건수</th>
+                <th className="py-2 font-normal text-right">비중</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comboMix.map((c) => (
+                <tr key={c.comboLabel} className="border-b border-[var(--border)] last:border-0">
+                  <td className="py-2">{c.comboLabel}</td>
+                  <td className="py-2 text-right">{c.qty.toLocaleString()}</td>
+                  <td className="py-2 text-right">
+                    {comboTotalQty > 0 ? ((c.qty / comboTotalQty) * 100).toFixed(1) : "0.0"}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

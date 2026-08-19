@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       revenue: row.revenue,
       store_name: row.storeName,
       sale_date: row.saleDate ?? periodStart,
+      channel: row.channel,
     }))
   );
 
@@ -87,15 +88,36 @@ export async function POST(request: NextRequest) {
       parsed.dailyStats.map((d) => ({
         sale_date: d.saleDate,
         store_name: d.storeName,
+        channel: d.channel,
         order_count: d.orderCount,
         total_qty: d.totalQty,
         total_revenue: d.totalRevenue,
       })),
-      { onConflict: "sale_date,store_name" }
+      { onConflict: "sale_date,store_name,channel" }
     );
     if (statsError) {
       return NextResponse.json(
         { error: `일별 통계 저장 실패: ${statsError.message}` },
+        { status: 500 }
+      );
+    }
+  }
+
+  if (parsed.combos.length > 0) {
+    const { error: comboError } = await supabase.from("menu_option_combos").upsert(
+      parsed.combos.map((c) => ({
+        sale_date: c.saleDate,
+        store_name: c.storeName,
+        channel: c.channel,
+        base_product: c.baseProduct,
+        combo_label: c.comboLabel,
+        qty: c.qty,
+      })),
+      { onConflict: "sale_date,store_name,channel,base_product,combo_label" }
+    );
+    if (comboError) {
+      return NextResponse.json(
+        { error: `조합 통계 저장 실패: ${comboError.message}` },
         { status: 500 }
       );
     }
