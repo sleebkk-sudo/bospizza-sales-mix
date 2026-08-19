@@ -3,6 +3,7 @@ import { format, subDays, startOfMonth } from "date-fns";
 import { MetricCard } from "@/components/MetricCard";
 import { FilterBar } from "@/components/FilterBar";
 import { MenuMixSection } from "@/components/MenuMixSection";
+import { ComboMixSection } from "@/components/ComboMixSection";
 import { TrendChart } from "@/components/TrendChart";
 import {
   getDateBounds,
@@ -145,12 +146,18 @@ export default async function DashboardPage({
     .map(([label, revenue]) => ({ label, revenue }));
 
   const comboTotals = new Map<string, number>();
+  const flavorTotals = new Map<string, number>();
   for (const c of combos) {
     comboTotals.set(c.combo_label, (comboTotals.get(c.combo_label) ?? 0) + c.qty);
+    for (const flavor of c.combo_label.split(" + ")) {
+      flavorTotals.set(flavor, (flavorTotals.get(flavor) ?? 0) + c.qty);
+    }
   }
-  const comboTotalQty = [...comboTotals.values()].reduce((s, q) => s + q, 0);
   const comboMix = [...comboTotals.entries()]
-    .map(([comboLabel, qty]) => ({ comboLabel, qty }))
+    .map(([label, qty]) => ({ label, qty }))
+    .sort((a, b) => b.qty - a.qty);
+  const flavorMix = [...flavorTotals.entries()]
+    .map(([label, qty]) => ({ label, qty }))
     .sort((a, b) => b.qty - a.qty);
 
   return (
@@ -220,30 +227,7 @@ export default async function DashboardPage({
 
       {comboMix.length > 0 && (
         <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
-          <p className="text-sm font-medium mb-1">반반피자 조합별 판매비중</p>
-          <p className="text-xs text-[var(--text-muted)] mb-4">
-            반반피자류 주문에서 고른 두 가지 맛 조합 기준 (매출이 아닌 주문건수 비중)
-          </p>
-          <table className="w-full text-sm min-w-[420px]">
-            <thead>
-              <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
-                <th className="py-2 font-normal">맛 조합</th>
-                <th className="py-2 font-normal text-right">건수</th>
-                <th className="py-2 font-normal text-right">비중</th>
-              </tr>
-            </thead>
-            <tbody>
-              {comboMix.map((c) => (
-                <tr key={c.comboLabel} className="border-b border-[var(--border)] last:border-0">
-                  <td className="py-2">{c.comboLabel}</td>
-                  <td className="py-2 text-right">{c.qty.toLocaleString()}</td>
-                  <td className="py-2 text-right">
-                    {comboTotalQty > 0 ? ((c.qty / comboTotalQty) * 100).toFixed(1) : "0.0"}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ComboMixSection combos={comboMix} flavors={flavorMix} />
         </div>
       )}
     </div>
