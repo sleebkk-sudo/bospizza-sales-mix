@@ -6,7 +6,6 @@ import {
   getChannels,
   getStoreNames,
 } from "@/lib/data";
-import { ReviewCaptureForm } from "@/components/ReviewCaptureForm";
 import { MetricCard } from "@/components/MetricCard";
 
 export const dynamic = "force-dynamic";
@@ -66,11 +65,15 @@ export default async function ReviewsPage({
       <div>
         <h1 className="text-lg font-semibold mb-1">리뷰</h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          배달앱 리뷰를 캡처해서 모으고, 날짜·매장·배달앱·긍정/부정으로 필터링해서 봅니다.
+          배달앱 리뷰를 날짜·매장·배달앱·긍정/부정으로 필터링해서 봅니다.
         </p>
       </div>
 
-      <ReviewCaptureForm stores={allStores} channels={channels} />
+      {!hasData && (
+        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-8 text-center">
+          <p className="text-sm text-[var(--text-secondary)]">아직 저장된 리뷰가 없습니다.</p>
+        </div>
+      )}
 
       {hasData && (
         <>
