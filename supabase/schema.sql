@@ -97,3 +97,27 @@ create index if not exists menu_option_combos_base_product_idx
   on menu_option_combos (base_product);
 create index if not exists menu_option_combos_sale_date_idx
   on menu_option_combos (sale_date);
+
+-- ============================================================
+-- 6. 리뷰 — 배달앱 리뷰 목록 화면을 캡처해서 OCR로 읽어 저장 (파일
+--    다운로드가 안 되는 데이터라 캡처 입력 방식). sentiment는 별점
+--    기준 자동 분류(4~5=positive, 3=neutral, 1~2=negative).
+-- ============================================================
+create table if not exists reviews (
+  id uuid primary key default gen_random_uuid(),
+  review_date date not null,
+  store_name text not null,
+  channel text not null,
+  rating numeric,
+  sentiment text not null default 'neutral' check (sentiment in ('positive','neutral','negative')),
+  review_text text,
+  order_menu text,
+  owner_reply boolean not null default false,
+  capture_image_url text,
+  created_at timestamptz not null default now(),
+  unique (review_date, store_name, channel, review_text)
+);
+create index if not exists reviews_review_date_idx on reviews (review_date);
+create index if not exists reviews_store_name_idx on reviews (store_name);
+create index if not exists reviews_sentiment_idx on reviews (sentiment);
+create index if not exists reviews_channel_idx on reviews (channel);

@@ -36,7 +36,29 @@ export type MenuCost = {
   note: string | null;
 };
 
-const CHANNELS = ["요기요", "배민"] as const;
+const CHANNELS = ["요기요", "배민", "쿠팡이츠"] as const;
+
+export type Review = {
+  id: string;
+  review_date: string;
+  store_name: string;
+  channel: string;
+  rating: number | null;
+  sentiment: "positive" | "neutral" | "negative";
+  review_text: string | null;
+  order_menu: string | null;
+  owner_reply: boolean;
+};
+
+export type NewReview = {
+  reviewDate: string;
+  storeName: string;
+  channel: string;
+  rating: number | null;
+  sentiment: "positive" | "neutral" | "negative";
+  reviewText: string;
+  orderMenu: string | null;
+};
 
 export async function getDateBounds(): Promise<{ min: string | null; max: string | null }> {
   const [{ data: minRow }, { data: maxRow }] = await Promise.all([
@@ -120,6 +142,61 @@ export async function getCombosInRange(
   if (channel) query = query.eq("channel", channel);
   const { data } = await query;
   return (data ?? []) as ComboRow[];
+}
+
+export async function getReviewsInRange(
+  from: string,
+  to: string,
+  store: string | null,
+  channel: string | null,
+  sentiment: string | null
+): Promise<Review[]> {
+  let query = supabase
+    .from("reviews")
+    .select("id, review_date, store_name, channel, rating, sentiment, review_text, order_menu, owner_reply")
+    .gte("review_date", from)
+    .lte("review_date", to)
+    .order("review_date", { ascending: false });
+  if (store) query = query.eq("store_name", store);
+  if (channel) query = query.eq("channel", channel);
+  if (sentiment) query = query.eq("sentiment", sentiment);
+  const { data } = await query;
+  return (data ?? []) as Review[];
+}
+
+export async function getReviewStoreNames(): Promise<string[]> {
+  const { data } = await supabase.from("reviews").select("store_name");
+  return [...new Set((data ?? []).map((r) => r.store_name as string))].sort((a, b) => a.localeCompare(b, "ko"));
+}
+
+export async function getReviewDateBounds(): Promise<{ min: string | null; max: string | null }> {
+  const [{ data: minRow }, { data: maxRow }] = await Promise.all([
+    supabase.from("reviews").select("review_date").order("review_date", { ascending: true }).limit(1).maybeSingle(),
+    supabase.from("reviews").select("review_date").order("review_date", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  return {
+    min: (minRow?.review_date as string) ?? null,
+    max: (maxRow?.review_date as string) ?? null,
+  };
+}
+
+export async function insertReviews(reviews: NewReview[]): Promise<{ inserted: number; error: string | null }> {
+  if (reviews.length === 0) return { inserted: 0, error: null };
+  const { error, count } = await supabase
+    .from("reviews")
+    .upsert(
+      reviews.map((r) => ({
+        review_date: r.reviewDate,
+        store_name: r.storeName,
+        channel: r.channel,
+        rating: r.rating,
+        sentiment: r.sentiment,
+        review_text: r.reviewText,
+        order_menu: r.orderMenu,
+      })),
+      { onConflict: "review_date,store_name,channel,review_text", count: "exact" }
+    );
+  return { inserted: count ?? reviews.length, error: error?.message ?? null };
 }
 
 export async function getMenuCosts(): Promise<MenuCost[]> {
