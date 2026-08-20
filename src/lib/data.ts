@@ -1,6 +1,5 @@
 import "server-only";
 import { supabase } from "@/lib/supabase";
-import { categorizeMenuName } from "@/lib/parseSalesReport";
 
 export type SalesItem = {
   id: string;
@@ -192,92 +191,4 @@ export async function insertReviews(reviews: NewReview[]): Promise<{ inserted: n
       { onConflict: "review_date,store_name,channel,review_text", count: "exact" }
     );
   return { inserted: count ?? reviews.length, error: error?.message ?? null };
-}
-
-export type CaptureMenuLine = { name: string; qty: number; revenue: number };
-
-// 캡처 입력(개별 주문영수증 또는 일별 요약 화면)을 저장한다. 같은 매장/날짜에
-// 여러 번 캡처(주문 여러 건)해도 서로 덮어쓰지 않도록, 기존 값에 새 값을
-// 더해서 저장한다 (파일 업로드의 "스냅샷 통째로 교체" 방식과는 다름).
-export async function saveSalesCapture(params: {
-  saleDate: string;
-  storeName: string;
-  channel: string;
-  menuItems: CaptureMenuLine[];
-  fallbackRevenue: number | null;
-  fallbackOrders: number | null;
-}): Promise<{ error: string | null }> {
-  const { saleDate, storeName, channel, menuItems, fallbackRevenue, fallbackOrders } = params;
-
-  const rows =
-    menuItems.length > 0
-      ? menuItems.map((m) => ({
-          category: categorizeMenuName(m.name),
-          product_name: m.name,
-          qty: m.qty,
-          revenue: m.revenue,
-        }))
-      : [
-          {
-            category: "미분류",
-            product_name: "쿠팡이츠 매출(캡처입력)",
-            qty: fallbackOrders ?? 1,
-            revenue: fallbackRevenue ?? 0,
-          },
-        ];
-
-  for (const row of rows) {
-    const { data: existing } = await supabase
-      .from("menu_sales_items")
-      .select("id, qty, revenue")
-      .eq("sale_date", saleDate)
-      .eq("store_name", storeName)
-      .eq("product_name", row.product_name)
-      .eq("channel", channel)
-      .maybeSingle();
-
-    const { error } = await supabase.from("menu_sales_items").upsert(
-      {
-        id: existing?.id,
-        category: row.category,
-        product_name: row.product_name,
-        qty: (existing?.qty ?? 0) + row.qty,
-        revenue: (existing?.revenue ?? 0) + row.revenue,
-        store_name: storeName,
-        sale_date: saleDate,
-        channel,
-      },
-      { onConflict: "sale_date,store_name,product_name,channel" }
-    );
-    if (error) return { error: error.message };
-  }
-
-  const addedRevenue = rows.reduce((s, r) => s + r.revenue, 0);
-  const addedQty = rows.reduce((s, r) => s + r.qty, 0);
-  const addedOrders = fallbackOrders ?? 1;
-
-  const { data: existingStat } = await supabase
-    .from("store_daily_stats")
-    .select("order_count, total_qty, total_revenue")
-    .eq("sale_date", saleDate)
-    .eq("store_name", storeName)
-    .eq("channel", channel)
-    .maybeSingle();
-
-  const { error: statError } = await supabase.from("store_daily_stats").upsert(
-    {
-      sale_date: saleDate,
-      store_name: storeName,
-      channel,
-      order_count: (existingStat?.order_count ?? 0) + addedOrders,
-      total_qty: (existingStat?.total_qty ?? 0) + addedQty,
-      total_revenue: (existingStat?.total_revenue ?? 0) + addedRevenue,
-    },
-    { onConflict: "sale_date,store_name,channel" }
-  );
-  if (statError) return { error: statError.message };
-
-  await supabase.from("stores").upsert({ name: storeName }, { onConflict: "name", ignoreDuplicates: true });
-
-  return { error: null };
 }
