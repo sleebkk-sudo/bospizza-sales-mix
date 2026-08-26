@@ -6,8 +6,9 @@ export default function UploadPage() {
       <div>
         <h1 className="text-lg font-semibold mb-1">매출 데이터 업로드</h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          기간을 지정하고 엑셀/CSV 파일을 올리면 그 기간의 스냅샷으로 저장됩니다.
-          같은 기간으로 다시 업로드하면 기존 데이터를 덮어씁니다.
+          엑셀/CSV 파일을 올리면 날짜·매장·채널을 파일에서 자동으로 읽어
+          그 기간의 스냅샷으로 저장됩니다. 같은 기간으로 다시 업로드하면
+          기존 데이터를 덮어씁니다.
         </p>
       </div>
 
@@ -28,7 +29,11 @@ export default function UploadPage() {
         </div>
         <div>
           <p className="font-medium mb-2">지원하는 파일 형식 ③: 자체 4컬럼 템플릿</p>
-          <p className="mb-2">첫 번째 시트에 아래 4개 컬럼이 헤더로 있어야 합니다 (순서 무관, 매장 구분 없음):</p>
+          <p className="mb-2">
+            매장 구분 없이 간단히 올릴 때 사용. 첫 번째 시트에 아래 4개 컬럼이 헤더로
+            있어야 하고, 아래 업로드 영역의 &quot;기간 입력&quot;을 펼쳐서 기간(시작일~종료일)을
+            직접 입력해야 합니다 (순서 무관, 매장 구분 없음):
+          </p>
           <p className="font-mono text-xs bg-[var(--surface-2)] rounded p-2">
             카테고리 | 메뉴명 | 수량 | 매출액
           </p>
