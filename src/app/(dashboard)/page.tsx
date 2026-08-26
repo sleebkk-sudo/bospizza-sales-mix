@@ -26,17 +26,16 @@ function clamp(date: string, min: string, max: string) {
   return date;
 }
 
+// "오늘"은 당일 매출 파일이 아직 안 올라와 있는 게 보통이라 의미가 없다.
+// 대신 "어제"는 데이터가 있는 가장 최근 날짜(maxDate) 하루로 본다.
 function buildPresets(minDate: string, maxDate: string) {
   const max = new Date(`${maxDate}T00:00:00Z`);
-  const today = maxDate;
-  const yesterday = fmt(subDays(max, 1));
   const last7 = fmt(subDays(max, 6));
   const monthStart = fmt(startOfMonth(max));
   return [
-    { label: "오늘", from: today, to: today },
-    { label: "어제", from: clamp(yesterday, minDate, maxDate), to: clamp(yesterday, minDate, maxDate) },
-    { label: "최근 7일", from: clamp(last7, minDate, maxDate), to: today },
-    { label: "이번달", from: clamp(monthStart, minDate, maxDate), to: today },
+    { label: "어제", from: maxDate, to: maxDate },
+    { label: "최근 7일", from: clamp(last7, minDate, maxDate), to: maxDate },
+    { label: "이번달", from: clamp(monthStart, minDate, maxDate), to: maxDate },
     { label: "전체기간", from: minDate, to: maxDate },
   ];
 }

@@ -48,7 +48,7 @@ export function FilterBar({
           </Link>
         ))}
       </div>
-      <form method="get" className="flex flex-wrap items-center gap-2">
+      <form method="get" className="flex flex-wrap items-center gap-2" key={`${from}|${to}`}>
         <input
           type="date"
           name="from"
