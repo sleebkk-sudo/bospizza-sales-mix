@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 import { parseSalesReport } from "@/lib/parseSalesReport";
+import { tryParseReviewReport } from "@/lib/parseReviewReport";
+import { insertReviews } from "@/lib/data";
 import { supabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
@@ -21,9 +23,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "파일이 없습니다." }, { status: 400 });
   }
 
+  const buffer = await file.arrayBuffer();
+
+  // 리뷰 리포트(배민 "리뷰 목록" CSV 등)는 매출 리포트와 완전히 다른 테이블
+  // (reviews)에 저장되고, 기간 스냅샷 개념도 없다 — 헤더로 먼저 판별해서
+  // 매출 파싱 경로를 타지 않고 바로 처리한다.
+  let reviewRows;
+  try {
+    reviewRows = tryParseReviewReport(buffer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "파일을 읽지 못했습니다.";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  if (reviewRows) {
+    if (reviewRows.length === 0) {
+      return NextResponse.json({ error: "리뷰 파일에서 데이터를 찾지 못했습니다." }, { status: 400 });
+    }
+
+    const { inserted, error } = await insertReviews(reviewRows);
+    if (error) {
+      return NextResponse.json({ error: `리뷰 저장 실패: ${error}` }, { status: 500 });
+    }
+
+    const storeNames = [...new Set(reviewRows.map((r) => r.storeName))];
+    if (storeNames.length > 0) {
+      await supabase
+        .from("stores")
+        .upsert(
+          storeNames.map((name) => ({ name })),
+          { onConflict: "name", ignoreDuplicates: true }
+        );
+    }
+
+    return NextResponse.json({ ok: true, kind: "reviews", rows: reviewRows.length, inserted });
+  }
+
   let parsed;
   try {
-    const buffer = await file.arrayBuffer();
     parsed = parseSalesReport(buffer);
   } catch (err) {
     const message = err instanceof Error ? err.message : "파일을 읽지 못했습니다.";

@@ -50,8 +50,9 @@ export type NewReview = {
   channel: string;
   rating: number | null;
   sentiment: "positive" | "neutral" | "negative";
-  reviewText: string;
+  reviewText: string | null;
   orderMenu: string | null;
+  ownerReply: boolean;
 };
 
 export async function getDateBounds(): Promise<{ min: string | null; max: string | null }> {
@@ -187,6 +188,7 @@ export async function insertReviews(reviews: NewReview[]): Promise<{ inserted: n
         sentiment: r.sentiment,
         review_text: r.reviewText,
         order_menu: r.orderMenu,
+        owner_reply: r.ownerReply,
       })),
       { onConflict: "review_date,store_name,channel,review_text", count: "exact" }
     );

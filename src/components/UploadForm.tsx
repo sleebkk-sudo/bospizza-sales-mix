@@ -10,7 +10,11 @@ export function UploadForm() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [status, setStatus] = useState<
-    { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string } | { kind: "success"; rows: number; totalRevenue: number }
+    | { kind: "idle" }
+    | { kind: "loading" }
+    | { kind: "error"; message: string }
+    | { kind: "success"; rows: number; totalRevenue: number }
+    | { kind: "success-reviews"; rows: number; inserted: number }
   >({ kind: "idle" });
 
   // 드래그로 넣든 클릭해서 고르든, 파일이 정해지는 즉시 바로 업로드한다 — 브랜드
@@ -33,7 +37,11 @@ export function UploadForm() {
       return;
     }
 
-    setStatus({ kind: "success", rows: body.rows, totalRevenue: body.totalRevenue });
+    if (body.kind === "reviews") {
+      setStatus({ kind: "success-reviews", rows: body.rows, inserted: body.inserted });
+    } else {
+      setStatus({ kind: "success", rows: body.rows, totalRevenue: body.totalRevenue });
+    }
     router.refresh();
   }
 
@@ -60,7 +68,8 @@ export function UploadForm() {
         }`}
       >
         <p className="text-sm text-[var(--text-secondary)] mb-3">
-          요기요·배민 파일을 여기로 드래그하면 채널·기간을 자동 인식해서 바로 반영합니다.
+          요기요·배민 매출 파일이나 배민 리뷰 목록 파일을 여기로 드래그하면 형식·채널·기간을
+          자동 인식해서 바로 반영합니다.
         </p>
         <label className="inline-block h-9 px-4 leading-9 rounded-md bg-[var(--fill-accent)] text-white text-sm font-medium cursor-pointer">
           파일 선택
@@ -107,6 +116,11 @@ export function UploadForm() {
       {status.kind === "success" && (
         <p className="text-sm text-[var(--text-success)]">
           {status.rows}개 메뉴, 총 {status.totalRevenue.toLocaleString()}원 저장 완료. 대시보드에서 확인하세요.
+        </p>
+      )}
+      {status.kind === "success-reviews" && (
+        <p className="text-sm text-[var(--text-success)]">
+          리뷰 {status.rows}건 중 {status.inserted}건 저장 완료. 리뷰 탭에서 확인하세요.
         </p>
       )}
     </div>

@@ -84,7 +84,8 @@ function toNumber(value: unknown): number {
 
 // 배달앱마다 매장명 표기가 달라서("B.BOSS피자 하남미사점" vs "보스피자-하남미사점")
 // 같은 매장이 필터에서 따로 잡히지 않도록 "보스피자-XX점" 형태로 통일한다.
-function normalizeStoreName(raw: string): string {
+// (리뷰 리포트 파서도 그대로 재사용 — parseReviewReport.ts)
+export function normalizeStoreName(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return trimmed;
   if (trimmed.startsWith("보스피자-")) return trimmed;
@@ -97,55 +98,69 @@ function isZipBuffer(buffer: ArrayBuffer): boolean {
   return bytes[0] === 0x50 && bytes[1] === 0x4b; // "PK" — 진짜 .xlsx/.xls(zip 기반) 파일
 }
 
-// 큰따옴표로 묶인 필드(콤마 포함 가능) 정도만 지원하는 최소 CSV 파서.
+// 큰따옴표로 묶인 필드(콤마·줄바꿈 포함 가능) CSV 파서. 리뷰 내용처럼 필드 안에
+// 개행이 들어있는 경우가 흔해서(리뷰 리포트), 줄 단위로 먼저 쪼개면 따옴표 안의
+// 개행에서 행이 깨진다 — 그래서 전체 텍스트를 문자 단위로 훑으면서 따옴표 밖에
+// 있는 개행만 실제 행 구분자로 취급한다.
 // xlsx 라이브러리로 CSV를 읽으면 "2026-08-16" 같은 날짜 문자열을 엑셀 시리얼 숫자로
 // 잘못 해석하는 문제가 있어, CSV는 직접 파싱해서 원본 문자열을 그대로 보존한다.
 function parseCsvText(text: string): Record<string, string>[] {
-  const lines = text.split(/\r\n|\n|\r/).filter((l) => l.length > 0);
-  if (lines.length === 0) return [];
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cur = "";
+  let inQuotes = false;
 
-  function parseLine(line: string): string[] {
-    const cells: string[] = [];
-    let cur = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQuotes) {
-        if (ch === '"') {
-          if (line[i + 1] === '"') {
-            cur += '"';
-            i++;
-          } else {
-            inQuotes = false;
-          }
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cur += '"';
+          i++;
         } else {
-          cur += ch;
+          inQuotes = false;
         }
-      } else if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ",") {
-        cells.push(cur);
-        cur = "";
       } else {
         cur += ch;
       }
+      continue;
     }
-    cells.push(cur);
-    return cells;
+
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(cur);
+      cur = "";
+    } else if (ch === "\r") {
+      // \r\n의 \n에서 행을 끊으므로 여기서는 무시
+    } else if (ch === "\n") {
+      row.push(cur);
+      cur = "";
+      rows.push(row);
+      row = [];
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.length > 0 || row.length > 0) {
+    row.push(cur);
+    rows.push(row);
   }
 
-  const headers = parseLine(lines[0]).map((h) => h.trim());
-  return lines.slice(1).map((line) => {
-    const cells = parseLine(line);
-    const row: Record<string, string> = {};
+  const nonEmptyRows = rows.filter((r) => !(r.length === 1 && r[0] === ""));
+  if (nonEmptyRows.length === 0) return [];
+
+  const headers = nonEmptyRows[0].map((h) => h.trim());
+  return nonEmptyRows.slice(1).map((cells) => {
+    const record: Record<string, string> = {};
     headers.forEach((h, i) => {
-      row[h] = (cells[i] ?? "").trim();
+      record[h] = (cells[i] ?? "").trim();
     });
-    return row;
+    return record;
   });
 }
 
-function readSheetRows(buffer: ArrayBuffer): Record<string, unknown>[] {
+export function readSheetRows(buffer: ArrayBuffer): Record<string, unknown>[] {
   if (isZipBuffer(buffer)) {
     const workbook = XLSX.read(buffer, { type: "array" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
