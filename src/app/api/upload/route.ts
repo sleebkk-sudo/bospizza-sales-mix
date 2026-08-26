@@ -61,6 +61,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // 브랜드 리포트(요기요/배민)는 행마다 실제 채널·날짜가 있는데, 예전에 다른 기간으로
+  // 업로드했던 스냅샷이 같은 날짜를 이미 담고 있을 수 있다(예: 8/17~8/23 범위로 한 번
+  // 올린 뒤 8/20 하루치만 다시 올리는 경우). snapshot_id로만 지우면 그 예전 스냅샷의
+  // 행은 안 지워져서 (sale_date, store_name, product_name, channel) unique 제약에
+  // 걸려 저장 자체가 실패한다 — 이번 업로드가 담고 있는 (채널, 날짜) 조합은 스냅샷
+  // 경계와 무관하게 통째로 지우고 다시 채운다.
+  const uploadChannels = [...new Set(parsed.rows.map((r) => r.channel).filter((c): c is string => !!c))];
+  const uploadDates = [...new Set(parsed.rows.map((r) => r.saleDate).filter((d): d is string => !!d))];
+  if (uploadChannels.length > 0 && uploadDates.length > 0) {
+    for (const channel of uploadChannels) {
+      await supabase.from("menu_sales_items").delete().eq("channel", channel).in("sale_date", uploadDates);
+    }
+  }
+  // 자체 4컬럼 템플릿(channel/saleDate 없음)은 스냅샷 단위로만 대체된다.
   await supabase.from("menu_sales_items").delete().eq("snapshot_id", snapshot.id);
 
   const { error: itemsError } = await supabase.from("menu_sales_items").insert(
