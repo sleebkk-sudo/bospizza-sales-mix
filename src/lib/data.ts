@@ -175,6 +175,23 @@ export async function getReviewDateBounds(): Promise<{ min: string | null; max: 
   };
 }
 
+export type AdCampaign = {
+  store_name: string;
+  is_active: boolean;
+  campaign_started_at: string | null;
+  cps_all: number | null;
+  cps_reorder: number | null;
+  cps_new: number | null;
+};
+
+export async function getAdCampaigns(): Promise<AdCampaign[]> {
+  const { data } = await supabase
+    .from("ad_campaigns")
+    .select("store_name, is_active, campaign_started_at, cps_all, cps_reorder, cps_new")
+    .order("store_name");
+  return (data ?? []) as AdCampaign[];
+}
+
 export async function insertReviews(reviews: NewReview[]): Promise<{ inserted: number; error: string | null }> {
   if (reviews.length === 0) return { inserted: 0, error: null };
   const { error, count } = await supabase

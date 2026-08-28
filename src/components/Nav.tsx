@@ -5,6 +5,7 @@ const links = [
   { href: "/", label: "대시보드" },
   { href: "/upload", label: "업로드" },
   { href: "/reviews", label: "리뷰" },
+  { href: "/ad-policy", label: "광고정책" },
 ];
 
 export function Nav() {
