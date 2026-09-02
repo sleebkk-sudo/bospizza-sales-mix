@@ -33,6 +33,28 @@ export type ComboRow = {
 
 const CHANNELS = ["요기요", "배민", "쿠팡이츠"] as const;
 
+// Supabase(PostgREST)는 별도 range 지정이 없으면 결과를 최대 1000행으로 잘라서 돌려준다
+// (오류 없이 조용히 잘림) — 매출/옵션 등 조회 기간이 넓어지면 1000행을 넘기는 경우가
+// 실제로 있어서(2026-09-02, 1주일치 매출행 1481건에서 발견), 모든 range 조회 함수는
+// 이 헬퍼로 1000행씩 끝까지 페이지네이션한다. 페이지 간 순서를 고정하려면 반드시 안정된
+// 정렬(id 등)이 필요하다 — 정렬 없이 range만 반복하면 페이지 사이에 행이 누락/중복될 수 있음.
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  buildPage: (rangeFrom: number, rangeTo: number) => PromiseLike<{ data: T[] | null }>
+): Promise<T[]> {
+  const rows: T[] = [];
+  let offset = 0;
+  while (true) {
+    const { data } = await buildPage(offset, offset + PAGE_SIZE - 1);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return rows;
+}
+
 // 옵션별 판매 믹스에 노출할 카테고리 — 정식 옵션 가격표(optionPriceCatalog)에 등록된
 // 카테고리만 다룬다 ("사이드 선택"처럼 가격표에 없는 카테고리는 제외).
 const OPTION_CATEGORIES = OPTION_CATALOG_CATEGORIES;
@@ -107,15 +129,18 @@ export async function getItemsInRange(
   store: string | null,
   channel: string | null
 ): Promise<SalesItem[]> {
-  let query = supabase
-    .from("menu_sales_items")
-    .select("id, category, product_name, qty, revenue, store_name, sale_date, channel")
-    .gte("sale_date", from)
-    .lte("sale_date", to);
-  if (store) query = query.eq("store_name", store);
-  if (channel) query = query.eq("channel", channel);
-  const { data } = await query;
-  return (data ?? []) as SalesItem[];
+  return fetchAllRows<SalesItem>((rangeFrom, rangeTo) => {
+    let query = supabase
+      .from("menu_sales_items")
+      .select("id, category, product_name, qty, revenue, store_name, sale_date, channel")
+      .gte("sale_date", from)
+      .lte("sale_date", to)
+      .order("id", { ascending: true })
+      .range(rangeFrom, rangeTo);
+    if (store) query = query.eq("store_name", store);
+    if (channel) query = query.eq("channel", channel);
+    return query as unknown as PromiseLike<{ data: SalesItem[] | null }>;
+  });
 }
 
 export async function getDailyStatsInRange(
@@ -124,15 +149,18 @@ export async function getDailyStatsInRange(
   store: string | null,
   channel: string | null
 ): Promise<DailyStat[]> {
-  let query = supabase
-    .from("store_daily_stats")
-    .select("sale_date, store_name, channel, order_count, total_qty, total_revenue")
-    .gte("sale_date", from)
-    .lte("sale_date", to);
-  if (store) query = query.eq("store_name", store);
-  if (channel) query = query.eq("channel", channel);
-  const { data } = await query;
-  return (data ?? []) as DailyStat[];
+  return fetchAllRows<DailyStat>((rangeFrom, rangeTo) => {
+    let query = supabase
+      .from("store_daily_stats")
+      .select("sale_date, store_name, channel, order_count, total_qty, total_revenue")
+      .gte("sale_date", from)
+      .lte("sale_date", to)
+      .order("id", { ascending: true })
+      .range(rangeFrom, rangeTo);
+    if (store) query = query.eq("store_name", store);
+    if (channel) query = query.eq("channel", channel);
+    return query as unknown as PromiseLike<{ data: DailyStat[] | null }>;
+  });
 }
 
 // menu_option_combos에는 메뉴명에 "반반"이 포함된 상품(반반피자, 반반피자+사이드+음료
@@ -143,15 +171,18 @@ export async function getCombosInRange(
   store: string | null,
   channel: string | null
 ): Promise<ComboRow[]> {
-  let query = supabase
-    .from("menu_option_combos")
-    .select("sale_date, store_name, channel, base_product, combo_label, qty")
-    .gte("sale_date", from)
-    .lte("sale_date", to);
-  if (store) query = query.eq("store_name", store);
-  if (channel) query = query.eq("channel", channel);
-  const { data } = await query;
-  return (data ?? []) as ComboRow[];
+  return fetchAllRows<ComboRow>((rangeFrom, rangeTo) => {
+    let query = supabase
+      .from("menu_option_combos")
+      .select("sale_date, store_name, channel, base_product, combo_label, qty")
+      .gte("sale_date", from)
+      .lte("sale_date", to)
+      .order("id", { ascending: true })
+      .range(rangeFrom, rangeTo);
+    if (store) query = query.eq("store_name", store);
+    if (channel) query = query.eq("channel", channel);
+    return query as unknown as PromiseLike<{ data: ComboRow[] | null }>;
+  });
 }
 
 // 피자 맛 선택을 제외한 옵션(사이즈/도우/토핑/추가메뉴/음료/리뷰이벤트/사이드) 카테고리 목록.
@@ -166,16 +197,19 @@ export async function getOptionSelectionsInRange(
   channel: string | null,
   category: string | null
 ): Promise<OptionSelectionRow[]> {
-  let query = supabase
-    .from("menu_option_selections")
-    .select("sale_date, store_name, channel, category, option_name, qty, revenue")
-    .gte("sale_date", from)
-    .lte("sale_date", to);
-  if (store) query = query.eq("store_name", store);
-  if (channel) query = query.eq("channel", channel);
-  if (category) query = query.eq("category", category);
-  const { data } = await query;
-  return (data ?? []) as OptionSelectionRow[];
+  return fetchAllRows<OptionSelectionRow>((rangeFrom, rangeTo) => {
+    let query = supabase
+      .from("menu_option_selections")
+      .select("sale_date, store_name, channel, category, option_name, qty, revenue")
+      .gte("sale_date", from)
+      .lte("sale_date", to)
+      .order("id", { ascending: true })
+      .range(rangeFrom, rangeTo);
+    if (store) query = query.eq("store_name", store);
+    if (channel) query = query.eq("channel", channel);
+    if (category) query = query.eq("category", category);
+    return query as unknown as PromiseLike<{ data: OptionSelectionRow[] | null }>;
+  });
 }
 
 export async function getReviewsInRange(
@@ -185,17 +219,20 @@ export async function getReviewsInRange(
   channel: string | null,
   sentiment: string | null
 ): Promise<Review[]> {
-  let query = supabase
-    .from("reviews")
-    .select("id, review_date, store_name, channel, rating, sentiment, review_text, order_menu, owner_reply")
-    .gte("review_date", from)
-    .lte("review_date", to)
-    .order("review_date", { ascending: false });
-  if (store) query = query.eq("store_name", store);
-  if (channel) query = query.eq("channel", channel);
-  if (sentiment) query = query.eq("sentiment", sentiment);
-  const { data } = await query;
-  return (data ?? []) as Review[];
+  return fetchAllRows<Review>((rangeFrom, rangeTo) => {
+    let query = supabase
+      .from("reviews")
+      .select("id, review_date, store_name, channel, rating, sentiment, review_text, order_menu, owner_reply")
+      .gte("review_date", from)
+      .lte("review_date", to)
+      .order("review_date", { ascending: false })
+      .order("id", { ascending: true })
+      .range(rangeFrom, rangeTo);
+    if (store) query = query.eq("store_name", store);
+    if (channel) query = query.eq("channel", channel);
+    if (sentiment) query = query.eq("sentiment", sentiment);
+    return query as unknown as PromiseLike<{ data: Review[] | null }>;
+  });
 }
 
 export async function getReviewStoreNames(): Promise<string[]> {
