@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { getCatalogPrice } from "@/lib/optionPriceCatalog";
 
 export type OptionEntry = { name: string; qty: number; revenue: number };
 
@@ -71,13 +72,17 @@ export function OptionMixSection({
         </thead>
         <tbody>
           {rows.map((r) => {
-            const unitPrice = r.qty > 0 ? Math.round(r.revenue / r.qty) : 0;
+            // 실제 매출은 리뷰이벤트 등으로 0원 처리된 건이 섞여 있어 평균 단가가 흔들리므로,
+            // 카탈로그에 등록된 옵션이면 정가와 (정가 × 건수)를 그대로 보여준다.
+            const catalogPrice = category ? getCatalogPrice(category, r.name) : null;
+            const unitPrice = catalogPrice ?? (r.qty > 0 ? Math.round(r.revenue / r.qty) : 0);
+            const revenue = catalogPrice !== null ? catalogPrice * r.qty : r.revenue;
             return (
               <tr key={r.name} className="border-b border-[var(--border)] last:border-0">
                 <td className="py-2">{r.name}</td>
                 <td className="py-2 text-right">{unitPrice > 0 ? `+${unitPrice.toLocaleString()}원` : "0원"}</td>
                 <td className="py-2 text-right">{r.qty.toLocaleString()}</td>
-                <td className="py-2 text-right">{r.revenue.toLocaleString()}원</td>
+                <td className="py-2 text-right">{revenue.toLocaleString()}원</td>
                 <td className="py-2 text-right">{totalQty > 0 ? ((r.qty / totalQty) * 100).toFixed(1) : "0.0"}%</td>
               </tr>
             );
