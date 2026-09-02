@@ -51,9 +51,17 @@ export const OPTION_PRICE_CATALOG: Record<string, Record<string, number>> = {
   },
 };
 
-// 요기요는 음료명에 "500ml"/"1.25L" 단위가 붙어 내려온다 — 배민/카탈로그 표기("콜라500")와
-// 맞추기 위해 조회 시에만 단위를 벗겨낸다.
-function normalizeDrinkName(name: string): string {
+// 옵션별 판매 믹스에는 이 카탈로그에 등록된 카테고리·옵션만 노출한다 ("사이드 선택"처럼
+// 정식 옵션표에 없는 카테고리나, 원본 표기가 갈라져 나오는 옵션은 화면에서 제외/통합).
+export const OPTION_CATALOG_CATEGORIES = Object.keys(OPTION_PRICE_CATALOG);
+
+// 원본 파일마다 표기가 갈라지는 것들을 카탈로그 키로 맞춘다.
+// - 요기요 음료명은 "500ml"/"1.25L" 단위가 붙어 내려온다 (카탈로그/배민 표기는 "콜라500").
+// - 요기요는 리뷰이벤트 미참여를 "참여 안함"으로, 배민은 "선택 안함"으로 표기한다 — 같은 옵션.
+// - 배민 사이즈는 "L(8조각)"/"M(6조각)"처럼 조각수가 붙어 내려올 때가 있다 — 기본 사이즈와 같은 옵션.
+export function normalizeOptionName(category: string, name: string): string {
+  if (category === "리뷰이벤트" && name === "참여 안함") return "선택 안함";
+  if (category === "사이즈") return name.replace(/\(\d+조각\)$/, "");
   const match = name.match(/^(.+?)(\d+(?:\.\d+)?)(ml|L)$/i);
   return match ? `${match[1]}${match[2]}` : name;
 }
@@ -61,6 +69,10 @@ function normalizeDrinkName(name: string): string {
 export function getCatalogPrice(category: string, optionName: string): number | null {
   const table = OPTION_PRICE_CATALOG[category];
   if (!table) return null;
-  const key = normalizeDrinkName(optionName);
+  const key = normalizeOptionName(category, optionName);
   return key in table ? table[key] : null;
+}
+
+export function isCatalogOption(category: string, optionName: string): boolean {
+  return getCatalogPrice(category, optionName) !== null;
 }

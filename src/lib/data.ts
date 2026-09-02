@@ -1,5 +1,6 @@
 import "server-only";
 import { supabase } from "@/lib/supabase";
+import { OPTION_CATALOG_CATEGORIES } from "@/lib/optionPriceCatalog";
 
 export type SalesItem = {
   id: string;
@@ -32,8 +33,9 @@ export type ComboRow = {
 
 const CHANNELS = ["요기요", "배민", "쿠팡이츠"] as const;
 
-// 피자 맛 선택을 제외한 옵션 카테고리 — menu_option_selections에 실제로 쌓이는 값과 맞춰둔다.
-const OPTION_CATEGORIES = ["사이즈", "도우 선택", "추가토핑", "추가메뉴", "음료 추가", "리뷰이벤트", "사이드 선택"] as const;
+// 옵션별 판매 믹스에 노출할 카테고리 — 정식 옵션 가격표(optionPriceCatalog)에 등록된
+// 카테고리만 다룬다 ("사이드 선택"처럼 가격표에 없는 카테고리는 제외).
+const OPTION_CATEGORIES = OPTION_CATALOG_CATEGORIES;
 
 export type OptionSelectionRow = {
   sale_date: string;

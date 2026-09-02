@@ -16,6 +16,7 @@ import {
   getOptionSelectionsInRange,
   getOptionCategories,
 } from "@/lib/data";
+import { normalizeOptionName, isCatalogOption } from "@/lib/optionPriceCatalog";
 
 export const dynamic = "force-dynamic";
 
@@ -154,8 +155,9 @@ export default async function DashboardPage({
     const totalsByName = new Map<string, { qty: number; revenue: number }>();
     for (const o of optionSelections) {
       if (o.category !== category) continue;
-      // "L(8조각)"/"M(6조각)"처럼 조각수가 붙은 사이즈 표기를 기본 사이즈(L/M)와 합친다.
-      const name = category === "사이즈" ? o.option_name.replace(/\(\d+조각\)$/, "") : o.option_name;
+      // 정식 옵션 가격표에 없는 옵션(오분류·원본 표기 차이로 섞여든 값)은 노출하지 않는다.
+      if (!isCatalogOption(category, o.option_name)) continue;
+      const name = normalizeOptionName(category, o.option_name);
       const existing = totalsByName.get(name);
       if (existing) {
         existing.qty += o.qty;
