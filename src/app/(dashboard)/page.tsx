@@ -4,6 +4,7 @@ import { MetricCard } from "@/components/MetricCard";
 import { FilterBar } from "@/components/FilterBar";
 import { MenuMixSection } from "@/components/MenuMixSection";
 import { ComboMixSection } from "@/components/ComboMixSection";
+import { OptionMixSection } from "@/components/OptionMixSection";
 import { TrendChart } from "@/components/TrendChart";
 import {
   getDateBounds,
@@ -12,6 +13,8 @@ import {
   getItemsInRange,
   getDailyStatsInRange,
   getCombosInRange,
+  getOptionSelectionsInRange,
+  getOptionCategories,
 } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -73,11 +76,13 @@ export default async function DashboardPage({
   const store = sp.store && sp.store !== "all" ? sp.store : null;
   const channel = sp.channel && sp.channel !== "all" ? sp.channel : null;
 
-  const [items, dailyStats, combos] = await Promise.all([
+  const [items, dailyStats, combos, optionSelections] = await Promise.all([
     getItemsInRange(from, to, store, channel),
     getDailyStatsInRange(from, to, store, channel),
     getCombosInRange(from, to, store, channel),
+    getOptionSelectionsInRange(from, to, store, channel, null),
   ]);
+  const optionCategories = getOptionCategories();
 
   const totalRevenue = items.reduce((sum, i) => sum + i.revenue, 0);
   const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
@@ -143,6 +148,24 @@ export default async function DashboardPage({
   const trend = [...trendMap.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([label, revenue]) => ({ label, revenue }));
+
+  const optionMixByCategory: Record<string, { name: string; qty: number; revenue: number }[]> = {};
+  for (const category of optionCategories) {
+    const totalsByName = new Map<string, { qty: number; revenue: number }>();
+    for (const o of optionSelections) {
+      if (o.category !== category) continue;
+      const existing = totalsByName.get(o.option_name);
+      if (existing) {
+        existing.qty += o.qty;
+        existing.revenue += o.revenue;
+      } else {
+        totalsByName.set(o.option_name, { qty: o.qty, revenue: o.revenue });
+      }
+    }
+    optionMixByCategory[category] = [...totalsByName.entries()]
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.qty - a.qty);
+  }
 
   const comboTotals = new Map<string, number>();
   const flavorTotals = new Map<string, number>();
@@ -227,6 +250,12 @@ export default async function DashboardPage({
       {comboMix.length > 0 && (
         <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
           <ComboMixSection combos={comboMix} flavors={flavorMix} />
+        </div>
+      )}
+
+      {optionSelections.length > 0 && (
+        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
+          <OptionMixSection categories={[...optionCategories]} mixByCategory={optionMixByCategory} />
         </div>
       )}
     </div>

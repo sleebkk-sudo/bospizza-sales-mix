@@ -32,6 +32,19 @@ export type ComboRow = {
 
 const CHANNELS = ["요기요", "배민", "쿠팡이츠"] as const;
 
+// 피자 맛 선택을 제외한 옵션 카테고리 — menu_option_selections에 실제로 쌓이는 값과 맞춰둔다.
+const OPTION_CATEGORIES = ["사이즈", "도우 선택", "추가토핑", "추가메뉴", "음료 추가", "리뷰이벤트", "사이드 선택"] as const;
+
+export type OptionSelectionRow = {
+  sale_date: string;
+  store_name: string | null;
+  channel: string;
+  category: string;
+  option_name: string;
+  qty: number;
+  revenue: number;
+};
+
 export type Review = {
   id: string;
   review_date: string;
@@ -137,6 +150,30 @@ export async function getCombosInRange(
   if (channel) query = query.eq("channel", channel);
   const { data } = await query;
   return (data ?? []) as ComboRow[];
+}
+
+// 피자 맛 선택을 제외한 옵션(사이즈/도우/토핑/추가메뉴/음료/리뷰이벤트/사이드) 카테고리 목록.
+export function getOptionCategories(): readonly string[] {
+  return OPTION_CATEGORIES;
+}
+
+export async function getOptionSelectionsInRange(
+  from: string,
+  to: string,
+  store: string | null,
+  channel: string | null,
+  category: string | null
+): Promise<OptionSelectionRow[]> {
+  let query = supabase
+    .from("menu_option_selections")
+    .select("sale_date, store_name, channel, category, option_name, qty, revenue")
+    .gte("sale_date", from)
+    .lte("sale_date", to);
+  if (store) query = query.eq("store_name", store);
+  if (channel) query = query.eq("channel", channel);
+  if (category) query = query.eq("category", category);
+  const { data } = await query;
+  return (data ?? []) as OptionSelectionRow[];
 }
 
 export async function getReviewsInRange(

@@ -30,10 +30,23 @@ export type ParsedComboRow = {
   qty: number;
 };
 
+// 피자 주문 시 고르는 옵션(맛 선택 제외) 한 건. category는 "사이즈"/"도우 선택"/
+// "추가토핑"/"추가메뉴"/"음료 추가"/"리뷰이벤트"/"사이드 선택" 중 하나.
+export type ParsedOptionSelection = {
+  saleDate: string;
+  storeName: string | null;
+  channel: string;
+  category: string;
+  optionName: string;
+  qty: number;
+  revenue: number;
+};
+
 export type ParsedSalesReport = {
   rows: ParsedSalesRow[];
   dailyStats: ParsedDailyStat[];
   combos: ParsedComboRow[];
+  optionSelections: ParsedOptionSelection[];
   totalQty: number;
   totalRevenue: number;
   // 파일에서 날짜를 읽을 수 있으면 자동으로 채워짐 (브랜드 주문 리포트). 없으면 null —
@@ -67,9 +80,65 @@ export function categorizeMenuName(name: string): string {
 }
 
 // "반반피자" 등에서 고른 개별 맛 옵션인지 판별 (사이즈/도우/리뷰이벤트 등 다른 옵션과 구분).
+// 반반피자 두 번째 맛에는 "(반/반)"이 붙어 나올 때가 있다.
 function isFlavorOptionName(name: string): boolean {
-  return name.endsWith("피자");
+  return /피자(\(반\/반\))?$/.test(name);
 }
+
+// 요기요 OPTION 행은 옵션그룹 컬럼이 없어서 옵션명 자체로 카테고리를 판별해야 한다
+// (배민은 "옵션그룹이름" 컬럼이 있어 그대로 쓴다 — parseBaeminShopOrderDetail 참고).
+// 쿠팡이츠의 "우유도우"는 배민/요기요의 "기본 도우"와 같은 옵션이라 이름을 통일한다.
+const DOUGH_NAMES = new Set(["기본 도우", "고구마링", "치즈크러스트", "크림치즈링", "더블치즈크러스트"]);
+const TOPPING_BASE_NAMES = [
+  "옥수수",
+  "올리브",
+  "반달감자",
+  "파인애플",
+  "베이컨",
+  "카나디언햄",
+  "페퍼로니",
+  "바베큐치킨",
+  "불갈비",
+  "불고기",
+  "스파이스치킨",
+  "새우",
+];
+const ADDON_MENU_NAMES = new Set(["피클", "핫소스", "치즈가루", "갈릭디핑소스"]);
+const DRINK_PREFIXES = ["콜라", "제로콜라", "사이다"];
+
+function normalizeDoughName(name: string): string {
+  return name === "우유도우" ? "기본 도우" : name;
+}
+
+// 피자 맛 선택 옵션(예: "더블페퍼로니 피자")은 반반피자 조합 통계(ComboMixSection)에서
+// 이미 다루므로 여기서는 제외(null 반환)한다.
+export function classifyOptionSelection(rawName: string): { category: string; optionName: string } | null {
+  const name = rawName.trim();
+  if (!name) return null;
+  if (name.startsWith("[리뷰+사진]") || name === "선택 안함" || name === "참여 안함") {
+    const stripped = name.replace(/^\[리뷰\+사진\]/, "");
+    return { category: "리뷰이벤트", optionName: stripped || "선택 안함" };
+  }
+  if (name === "M" || name === "L") return { category: "사이즈", optionName: name };
+  const dough = normalizeDoughName(name);
+  if (DOUGH_NAMES.has(dough)) return { category: "도우 선택", optionName: dough };
+  if (TOPPING_BASE_NAMES.some((base) => name.startsWith(`${base}(`))) return { category: "추가토핑", optionName: name };
+  if (ADDON_MENU_NAMES.has(name)) return { category: "추가메뉴", optionName: name };
+  if (DRINK_PREFIXES.some((prefix) => name.startsWith(prefix))) return { category: "음료 추가", optionName: name };
+  if (isFlavorOptionName(name)) return null;
+  return { category: "사이드 선택", optionName: name };
+}
+
+// 배민은 "옵션그룹이름" 컬럼이 그대로 카테고리 역할을 한다. "피자 선택"은 반반피자
+// 조합 통계에서 이미 다루므로 제외한다.
+const BAEMIN_GROUP_TO_CATEGORY: Record<string, string> = {
+  "가격/사이즈": "사이즈",
+  "도우 선택": "도우 선택",
+  "추가 메뉴": "추가메뉴",
+  "음료 선택": "음료 추가",
+  "리뷰 이벤트": "리뷰이벤트",
+  "사이드 선택": "사이드 선택",
+};
 
 function comboLabelFor(flavors: string[]): string {
   return [...flavors].sort((a, b) => a.localeCompare(b, "ko")).join(" + ");
@@ -189,6 +258,7 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
   const revenueByStoreDate = new Map<string, number>();
   const qtyByStoreDate = new Map<string, number>();
   const comboGroups = new Map<string, ParsedComboRow>();
+  const optionGroups = new Map<string, ParsedOptionSelection>();
   let minDate: string | null = null;
   let maxDate: string | null = null;
 
@@ -228,11 +298,36 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
       orderIdsByStoreDate.get(sdKey)!.add(orderId);
     }
 
-    const flavorOptions = orderRows
-      .filter((r) => String(r["메뉴유형"] ?? "").trim() === "OPTION")
+    const optionRows = orderRows.filter((r) => String(r["메뉴유형"] ?? "").trim() === "OPTION");
+    const flavorOptions = optionRows
       .map((r) => String(r["옵션명"] ?? "").trim())
       .filter((name) => isFlavorOptionName(name));
     let flavorCursor = 0;
+
+    if (saleDate) {
+      for (const record of optionRows) {
+        const classified = classifyOptionSelection(String(record["옵션명"] ?? ""));
+        if (!classified) continue;
+        const qty = toNumber(record["메뉴or옵션수량"]);
+        const revenue = toNumber(record["주문금액"]);
+        const optKey = `${storeName}${KEY_SEP}${saleDate}${KEY_SEP}${classified.category}${KEY_SEP}${classified.optionName}`;
+        const existingOpt = optionGroups.get(optKey);
+        if (existingOpt) {
+          existingOpt.qty += qty;
+          existingOpt.revenue += revenue;
+        } else {
+          optionGroups.set(optKey, {
+            saleDate,
+            storeName,
+            channel: CHANNEL,
+            category: classified.category,
+            optionName: classified.optionName,
+            qty,
+            revenue,
+          });
+        }
+      }
+    }
 
     for (const record of menuRows) {
       const productName = String(record["메뉴명"] ?? "").trim();
@@ -307,6 +402,7 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
     rows,
     dailyStats,
     combos: [...comboGroups.values()],
+    optionSelections: [...optionGroups.values()],
     totalQty,
     totalRevenue,
     periodStart: minDate,
@@ -328,6 +424,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
   const revenueByStoreDate = new Map<string, number>();
   const orderCountByStoreDate = new Map<string, number>();
   const comboGroups = new Map<string, ParsedComboRow>();
+  const optionGroups = new Map<string, ParsedOptionSelection>();
   const seenOrderIds = new Set<string>();
   let minDate: string | null = null;
   let maxDate: string | null = null;
@@ -422,9 +519,35 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
     }
 
     const optionGroup = String(record["옵션그룹이름"] ?? "").trim();
-    const optionName = String(record["옵션명"] ?? "").trim();
-    if (optionName && (optionGroup === "피자 선택" || isFlavorOptionName(optionName))) {
-      curFlavors.push(optionName);
+    const optionNameRaw = String(record["옵션명"] ?? "").trim();
+    if (optionNameRaw && (optionGroup === "피자 선택" || isFlavorOptionName(optionNameRaw))) {
+      curFlavors.push(optionNameRaw);
+    } else if (optionNameRaw && saleDate) {
+      const category = BAEMIN_GROUP_TO_CATEGORY[optionGroup];
+      if (category) {
+        // 리뷰 이벤트 옵션은 "[리뷰+사진]피클"처럼 접두어가 붙어 나올 때가 있다 —
+        // 요기요 쪽(classifyOptionSelection)과 옵션명을 맞추기 위해 여기서도 벗겨낸다.
+        const optionName =
+          category === "리뷰이벤트" ? optionNameRaw.replace(/^\[리뷰\+사진\]/, "") || "선택 안함" : optionNameRaw;
+        const qty = toNumber(record["옵션수"]);
+        const revenue = toNumber(record["옵션 총 금액"]);
+        const optKey = `${storeName}${KEY_SEP}${saleDate}${KEY_SEP}${category}${KEY_SEP}${optionName}`;
+        const existingOpt = optionGroups.get(optKey);
+        if (existingOpt) {
+          existingOpt.qty += qty;
+          existingOpt.revenue += revenue;
+        } else {
+          optionGroups.set(optKey, {
+            saleDate,
+            storeName,
+            channel: CHANNEL,
+            category,
+            optionName,
+            qty,
+            revenue,
+          });
+        }
+      }
     }
   }
   flushCurrent();
@@ -453,6 +576,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
     rows,
     dailyStats,
     combos: [...comboGroups.values()],
+    optionSelections: [...optionGroups.values()],
     totalQty,
     totalRevenue,
     periodStart: minDate,
@@ -507,7 +631,16 @@ function parseGenericTemplate(raw: Record<string, unknown>[]): ParsedSalesReport
 
   const totalQty = rows.reduce((sum, r) => sum + r.qty, 0);
   const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
-  return { rows, dailyStats: [], combos: [], totalQty, totalRevenue, periodStart: null, periodEnd: null };
+  return {
+    rows,
+    dailyStats: [],
+    combos: [],
+    optionSelections: [],
+    totalQty,
+    totalRevenue,
+    periodStart: null,
+    periodEnd: null,
+  };
 }
 
 export function parseSalesReport(buffer: ArrayBuffer): ParsedSalesReport {

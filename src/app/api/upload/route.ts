@@ -174,6 +174,27 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (parsed.optionSelections.length > 0) {
+    const { error: optionError } = await supabase.from("menu_option_selections").upsert(
+      parsed.optionSelections.map((o) => ({
+        sale_date: o.saleDate,
+        store_name: o.storeName,
+        channel: o.channel,
+        category: o.category,
+        option_name: o.optionName,
+        qty: o.qty,
+        revenue: o.revenue,
+      })),
+      { onConflict: "sale_date,store_name,channel,category,option_name" }
+    );
+    if (optionError) {
+      return NextResponse.json(
+        { error: `옵션 통계 저장 실패: ${optionError.message}` },
+        { status: 500 }
+      );
+    }
+  }
+
   const storeNames = [...new Set(parsed.rows.map((r) => r.storeName).filter((s): s is string => !!s))];
   if (storeNames.length > 0) {
     await supabase
