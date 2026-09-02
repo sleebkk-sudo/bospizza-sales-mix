@@ -179,14 +179,69 @@ function normalizeStoreName(raw) { // "보스피자 XX점" -> "보스피자-XX�
   스킵했음. 필요해지면 그때 `.item-options .order-detail-option-name` 첫 번째(사이즈)를
   제외한 나머지 중 "피자"로 끝나는 옵션 2개를 골라 반영.
 
-## 6. 알려진 미해결 지점
+## 6. 날짜 범위 넓히기 — "1개월" 프리셋 (2026-09-01 해결됨)
 
-- **기본 조회 기간이 "최근 7일"로 고정** — 매장별 마지막 반영일이 7일보다 오래된 경우
-  (2026-08-23 기준 인천계산점 8/12, 신림녹두점 8/13, 송정역점 8/14) 그 사이 며칠은 이
-  7일 창에 안 잡힌다. 상단 "주문일 YYYY.MM.DD - YYYY.MM.DD" 옆 날짜 피커 버튼을
-  `computer.click`과 `__dispatchClick` 둘 다로 시도했지만 캘린더 팝업이 열리지 않았음
-  (DOM에 calendar/datepicker 관련 요소 자체가 안 생김 — 아이콘 버튼이 아니라 다른
-  트리거일 가능성). 다음에 이 갭이 다시 생기면 날짜 피커를 여는 방법부터 새로 찾아야
-  한다 — 영향은 매장당 1~3일, 주문 0~2건 수준이라 급하지 않음.
-- 위 3개 매장은 이번 회차에서 8/16~8/23 구간만 반영되고 그 이전 갭은 비어있는 채로
-  남아있다.
+이전 절("기본 조회 기간 7일 고정, 날짜 피커 안 열림")은 해결됨. 날짜 표시 영역 자체를
+클릭하는 게 아니라 그 안의 **`.css-1uvczjr` 서브 div**를 클릭해야 프리셋 드롭다운이
+열린다(바깥 wrapper를 클릭하면 아무 반응 없거나 씹힘 — 2026-09-01에 여러 번 확인).
+열리면 "오늘 / 최근 1주일 / 1개월 / 3개월 / 6개월" 프리셋 버튼이 나타나는데, 날짜가
+7일보다 오래 밀린 매장은 **"1개월"**을 클릭하면 됨(6개월치까지 밀린 적은 아직 없었음).
+그 다음 날짜 표시 옆의 아이콘 전용 버튼(`button.button--defaultOutlined`)을 클릭해야
+실제 조회가 실행된다 — 프리셋만 클릭하고 이 버튼을 안 누르면 화면 텍스트만 바뀌고
+목록은 갱신 안 됨.
+
+```js
+function robustClick(el) {
+  const r = el.getBoundingClientRect();
+  ['pointerdown','mousedown','mouseup','click'].forEach(t =>
+    el.dispatchEvent(new MouseEvent(t, {bubbles:true, cancelable:true, clientX:r.x+r.width/2, clientY:r.y+r.height/2}))
+  );
+}
+const wrapper = Array.from(document.querySelectorAll('div')).find(e => /\d{4}\.\d{2}\.\d{2}\s*-\s*\d{4}\.\d{2}\.\d{2}/.test(e.textContent.trim()) && e.textContent.trim().length < 40);
+robustClick(wrapper.querySelector('.css-1uvczjr') || wrapper);
+await new Promise(r => setTimeout(r, 500));
+robustClick(Array.from(document.querySelectorAll('*')).find(e => e.children.length===0 && e.textContent.trim()==='1개월'));
+await new Promise(r => setTimeout(r, 200));
+robustClick(Array.from(document.querySelectorAll('button')).find(b => b.className.includes('defaultOutlined') && b.offsetParent !== null));
+await new Promise(r => setTimeout(r, 1800)); // 결과 갱신 대기
+```
+
+## 7. 매장명 추출 — switcher 드롭다운의 숨은 링크와 절대 헷갈리지 말 것
+
+`document.querySelectorAll('a')`로 "보스피자"로 시작하는 텍스트를 찾으면 **현재 매장
+전환용 switcher 드롭다운의 숨은(rect 0×0) `<a>` 48개가 전부 걸린다** — 그중 배열 순서상
+첫 번째가 우연히 계정 기본 매장(예: 권선시장점)이라 어떤 store ID를 가든 항상 그 이름을
+돌려주는 조용한 버그가 남. (2026-09-01에 실제로 1057867=동탄목동점 데이터가
+보스피자-권선시장점으로 잘못 들어간 사고 발생 — 발견 즉시 해당 3개 행 삭제 후
+재입력함.) **현재 페이지의 실제 매장명은 `class="dropdown-btn highlight"`인 가시적
+DIV 하나뿐** — 아래처럼 rect가 실제로 화면에 잡히는(width>0 && height>0) 엘리먼트만
+후보로 남기고, 정규식도 매장명에 공백이 들어가는 경우(예: "중동 미리내점")까지 커버해야
+한다:
+
+```js
+const nameCandidates = Array.from(document.querySelectorAll('*'))
+  .filter(e => /^보스피자\s+.+점$/.test(e.textContent.trim()) && e.textContent.trim().length < 20);
+const nameEl = nameCandidates.find(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+```
+
+## 8. 취소·재주문 주문 제외
+
+주문 목록에 "주문취소"(취소됨) · "재주문"(무료 재발송, 매출 0원) 상태가 섞여 있다.
+`.order-item` 한 단계 위 `<li>`(row) 전체의 textContent에 이 두 문자열이 포함되면
+그 주문은 집계에서 건너뛴다 — 그대로 두면 매출이 부풀거나 취소된 메뉴가 믹스에 남는다.
+
+## 9. ACCESS_DENIED — 특정 매장이 아니라 세션/속도 문제로 보임 (2026-09-01 재확인)
+
+과거엔 "기흥역점부터 특정 매장들이 막힌다"고 기록했었는데, 이번엔 **48개 중 24개를
+연속으로 문제없이 처리한 뒤부터** 이후 매장(1057888~1057915, 갈산점 포함)이 전부
+막혔다 — 즉 이전에 잘 됐던 매장(갈산점 등)도 이번엔 막힘. 매장 고유의 권한 문제가
+아니라 **같은 세션에서 너무 많은 매장을 빠르게 순회하면 걸리는 속도 제한/이상탐지일
+가능성이 높다.** 막히면:
+- `/merchant/management/home/{id}` 선방문, 스위처 클릭 등 예전 워크어라운드는 이번엔
+  전혀 안 먹힘(직접 확인함).
+- 무리해서 계속 재시도하지 말 것 — 사용자가 예전에 "오류나니깐 이따가 해라"고 명시적으로
+  지시한 적 있음. 막힌 매장 목록만 기록해두고, 다음 세션(로그인을 새로 하거나 시간이
+  지난 뒤)에 그 매장들부터 마저 처리하면 된다.
+- 2026-09-01 세션에서 막힌 ID 범위: 1057888~1057915 (23~24개 매장). 성공한 범위:
+  1057866~1057887 (22개, 갈산점/사가정점/오류1호점 제외 — 이 셋은 8/27 이후 신규
+  주문이 없어서 애초에 갱신할 데이터가 없었음).
