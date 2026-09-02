@@ -172,11 +172,23 @@ export default async function DashboardPage({
       .sort((a, b) => b.qty - a.qty);
   }
 
+  // 반반피자 두 번째 맛에는 "(반반)"/"(반/반)" 접미어가 붙어 나올 때가 있고, 두 맛의
+  // 저장 순서가 store/date별로 뒤바뀌어 있을 수도 있어 — 집계 전에 항상 같은 규칙(접미어
+  // 제거 + 가나다순 정렬)으로 라벨을 다시 만들어야 같은 조합/맛이 갈라지지 않는다.
+  function canonicalComboLabel(comboLabel: string): string {
+    return comboLabel
+      .split(" + ")
+      .map((flavor) => flavor.replace(/\(반\/?반\)$/, ""))
+      .sort((a, b) => a.localeCompare(b, "ko"))
+      .join(" + ");
+  }
+
   const comboTotals = new Map<string, number>();
   const flavorTotals = new Map<string, number>();
   for (const c of combos) {
-    comboTotals.set(c.combo_label, (comboTotals.get(c.combo_label) ?? 0) + c.qty);
-    for (const flavor of c.combo_label.split(" + ")) {
+    const label = canonicalComboLabel(c.combo_label);
+    comboTotals.set(label, (comboTotals.get(label) ?? 0) + c.qty);
+    for (const flavor of label.split(" + ")) {
       flavorTotals.set(flavor, (flavorTotals.get(flavor) ?? 0) + c.qty);
     }
   }

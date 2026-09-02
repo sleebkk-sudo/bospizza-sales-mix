@@ -83,9 +83,16 @@ export function categorizeMenuName(name: string): string {
 }
 
 // "반반피자" 등에서 고른 개별 맛 옵션인지 판별 (사이즈/도우/리뷰이벤트 등 다른 옵션과 구분).
-// 반반피자 두 번째 맛에는 "(반/반)"이 붙어 나올 때가 있다.
+// 반반피자 두 번째 맛에는 "(반/반)" 또는 "(반반)"이 붙어 나올 때가 있다.
 function isFlavorOptionName(name: string): boolean {
-  return /피자(\(반\/반\))?$/.test(name);
+  return /피자(\(반\/?반\))?$/.test(name);
+}
+
+// 맛 이름 자체는 같은데 두 번째 맛에만 "(반반)"/"(반/반)" 접미어가 붙어 나와서 같은 맛이
+// "더블페퍼로니 피자"/"더블페퍼로니 피자(반반)"로 갈라지는 걸 막기 위해 조합 라벨을 만들기
+// 전에 접미어를 벗겨낸다.
+function normalizeFlavorName(name: string): string {
+  return name.replace(/\(반\/?반\)$/, "");
 }
 
 // 요기요 OPTION 행은 옵션그룹 컬럼이 없어서 옵션명 자체로 카테고리를 판별해야 한다
@@ -310,7 +317,8 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
     const optionRows = orderRows.filter((r) => String(r["메뉴유형"] ?? "").trim() === "OPTION");
     const flavorOptions = optionRows
       .map((r) => String(r["옵션명"] ?? "").trim())
-      .filter((name) => isFlavorOptionName(name));
+      .filter((name) => isFlavorOptionName(name))
+      .map((name) => normalizeFlavorName(name));
     let flavorCursor = 0;
 
     if (saleDate) {
@@ -530,7 +538,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
     const optionGroup = String(record["옵션그룹이름"] ?? "").trim();
     const optionNameRaw = String(record["옵션명"] ?? "").trim();
     if (optionNameRaw && (optionGroup === "피자 선택" || isFlavorOptionName(optionNameRaw))) {
-      curFlavors.push(optionNameRaw);
+      curFlavors.push(normalizeFlavorName(optionNameRaw));
     } else if (optionNameRaw && saleDate) {
       const category = BAEMIN_GROUP_TO_CATEGORY[optionGroup];
       if (category) {
