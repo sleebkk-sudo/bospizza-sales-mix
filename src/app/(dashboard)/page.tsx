@@ -213,7 +213,7 @@ export default async function DashboardPage({
         <MetricCard label="총 피자판수" value={`${pizzaQty.toLocaleString()}개`} />
         <MetricCard label="주문 건수" value={orderCount > 0 ? `${orderCount.toLocaleString()}건` : "-"} />
         <MetricCard label="건단가" value={avgTicket !== null ? `${avgTicket.toLocaleString()}원` : "-"} />
-        <MetricCard label="건당 판수" value={pizzasPerOrder !== null ? `${pizzasPerOrder.toFixed(1)}개` : "-"} />
+        <MetricCard label="건당 판수" value={pizzasPerOrder !== null ? `${pizzasPerOrder.toFixed(2)}개` : "-"} />
       </div>
 
       <TrendChart data={trend} />
