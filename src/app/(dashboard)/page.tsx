@@ -86,10 +86,11 @@ export default async function DashboardPage({
   const optionCategories = getOptionCategories();
 
   const totalRevenue = items.reduce((sum, i) => sum + i.revenue, 0);
-  const totalQty = items.reduce((sum, i) => sum + i.qty, 0);
+  const pizzaQty = items.filter((i) => i.category === "피자").reduce((sum, i) => sum + i.qty, 0);
   const orderCount = dailyStats.reduce((sum, d) => sum + d.order_count, 0);
   const statsRevenue = dailyStats.reduce((sum, d) => sum + d.total_revenue, 0);
   const avgTicket = orderCount > 0 ? Math.round(statsRevenue / orderCount) : null;
+  const pizzasPerOrder = orderCount > 0 ? pizzaQty / orderCount : null;
 
   const productTotals = new Map<string, { category: string; qty: number; revenue: number }>();
   for (const item of items) {
@@ -207,11 +208,12 @@ export default async function DashboardPage({
         presets={presets}
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <MetricCard label="총 매출" value={`${totalRevenue.toLocaleString()}원`} role="accent" />
-        <MetricCard label="총 판매수량" value={`${totalQty.toLocaleString()}개`} />
+        <MetricCard label="총 피자판수" value={`${pizzaQty.toLocaleString()}개`} />
         <MetricCard label="주문 건수" value={orderCount > 0 ? `${orderCount.toLocaleString()}건` : "-"} />
         <MetricCard label="건단가" value={avgTicket !== null ? `${avgTicket.toLocaleString()}원` : "-"} />
+        <MetricCard label="건당 판수" value={pizzasPerOrder !== null ? `${pizzasPerOrder.toFixed(1)}개` : "-"} />
       </div>
 
       <TrendChart data={trend} />
