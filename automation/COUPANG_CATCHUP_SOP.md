@@ -139,10 +139,13 @@ Supabase가 직접 통신하니 원본 주문 데이터가 에이전트 컨텍�
 
 ```js
 function categorizeMenuName(name) { // src/lib/parseSalesReport.ts와 동일 로직 유지할 것
-  if (name.includes("+사이드+음료") || name.includes("세트")) return "세트";
+  // "피자+사이드+음료 세트"처럼 세트 메뉴명에 "피자"가 같이 들어있는 경우가 많아
+  // 세트 판별보다 피자 포함 여부를 먼저 봐야 한다 (2026-09-02, 피자 판매수량 과소집계
+  // 버그로 발견 — 세트로 나간 피자가 전부 "세트" 카테고리로 빠져있었음).
   if (name.includes("피자")) return "피자";
   if (name.includes("스파게티") || name.includes("파스타")) return "파스타";
   if (["콜라","사이다","환타","스프라이트","밀키스","제로"].some(k => name.includes(k))) return "음료";
+  if (name.includes("+사이드+음료") || name.includes("세트")) return "세트";
   return "사이드";
 }
 function normalizeStoreName(raw) { // "보스피자 XX점" -> "보스피자-XX점", 내부 공백 제거

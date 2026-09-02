@@ -71,11 +71,14 @@ const GENERIC_HEADER_ALIASES: Record<string, "category" | "productName" | "qty" 
 const DRINK_KEYWORDS = ["콜라", "사이다", "환타", "스프라이트", "밀키스", "제로"];
 const KEY_SEP = "|||";
 
+// "피자+사이드+음료 세트"처럼 세트 메뉴 이름에 "피자"/"세트"가 같이 들어있는 경우가
+// 많아, 세트 여부보다 피자 포함 여부를 먼저 판별해야 한다 — 안 그러면 세트로 나가는
+// 피자 판매량이 전부 "세트" 카테고리로 빠져서 피자 판매수량이 실제보다 적게 집계된다.
 export function categorizeMenuName(name: string): string {
-  if (name.includes("+사이드+음료") || name.includes("세트")) return "세트";
   if (name.includes("피자")) return "피자";
   if (name.includes("스파게티") || name.includes("파스타")) return "파스타";
   if (DRINK_KEYWORDS.some((k) => name.includes(k))) return "음료";
+  if (name.includes("+사이드+음료") || name.includes("세트")) return "세트";
   return "사이드";
 }
 
