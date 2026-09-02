@@ -154,12 +154,14 @@ export default async function DashboardPage({
     const totalsByName = new Map<string, { qty: number; revenue: number }>();
     for (const o of optionSelections) {
       if (o.category !== category) continue;
-      const existing = totalsByName.get(o.option_name);
+      // "L(8조각)"/"M(6조각)"처럼 조각수가 붙은 사이즈 표기를 기본 사이즈(L/M)와 합친다.
+      const name = category === "사이즈" ? o.option_name.replace(/\(\d+조각\)$/, "") : o.option_name;
+      const existing = totalsByName.get(name);
       if (existing) {
         existing.qty += o.qty;
         existing.revenue += o.revenue;
       } else {
-        totalsByName.set(o.option_name, { qty: o.qty, revenue: o.revenue });
+        totalsByName.set(name, { qty: o.qty, revenue: o.revenue });
       }
     }
     optionMixByCategory[category] = [...totalsByName.entries()]

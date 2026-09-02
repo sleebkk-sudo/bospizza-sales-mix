@@ -110,6 +110,12 @@ function normalizeDoughName(name: string): string {
   return name === "우유도우" ? "기본 도우" : name;
 }
 
+// 배민은 "L(8조각)"/"M(6조각)"처럼 조각수가 붙은 사이즈 표기가 그대로 내려올 때가 있다 —
+// 기본 사이즈(L/M)와 같은 옵션이라 합친다.
+function normalizeSizeName(name: string): string {
+  return name.replace(/\(\d+조각\)$/, "");
+}
+
 // 피자 맛 선택 옵션(예: "더블페퍼로니 피자")은 반반피자 조합 통계(ComboMixSection)에서
 // 이미 다루므로 여기서는 제외(null 반환)한다.
 export function classifyOptionSelection(rawName: string): { category: string; optionName: string } | null {
@@ -528,7 +534,11 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
         // 리뷰 이벤트 옵션은 "[리뷰+사진]피클"처럼 접두어가 붙어 나올 때가 있다 —
         // 요기요 쪽(classifyOptionSelection)과 옵션명을 맞추기 위해 여기서도 벗겨낸다.
         const optionName =
-          category === "리뷰이벤트" ? optionNameRaw.replace(/^\[리뷰\+사진\]/, "") || "선택 안함" : optionNameRaw;
+          category === "리뷰이벤트"
+            ? optionNameRaw.replace(/^\[리뷰\+사진\]/, "") || "선택 안함"
+            : category === "사이즈"
+              ? normalizeSizeName(optionNameRaw)
+              : optionNameRaw;
         const qty = toNumber(record["옵션수"]);
         const revenue = toNumber(record["옵션 총 금액"]);
         const optKey = `${storeName}${KEY_SEP}${saleDate}${KEY_SEP}${category}${KEY_SEP}${optionName}`;
