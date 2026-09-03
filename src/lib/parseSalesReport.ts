@@ -452,6 +452,10 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
   let curAccum: { storeName: string; saleDate: string; category: string; productName: string; qty: number; revenue: number } | null = null;
   let curFlavors: string[] = [];
 
+  // "가게별 주문 상세(옵션)" 리포트는 주문상태 컬럼 자체가 없다 — 이 리포트는 완료 주문만
+  // 내려주는 것으로 확인됨(2026-09-03). 컬럼이 있으면(취소 포함 리포트) 기존대로 필터링.
+  const hasStatusColumn = raw.length > 0 && "주문상태" in raw[0];
+
   function flushCurrent() {
     if (!curAccum) return;
     const key = `${curAccum.storeName}${KEY_SEP}${curAccum.productName}${KEY_SEP}${curAccum.saleDate}`;
@@ -492,7 +496,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
   }
 
   for (const record of raw) {
-    if (String(record["주문상태"] ?? "").trim() !== "주문완료") continue;
+    if (hasStatusColumn && String(record["주문상태"] ?? "").trim() !== "주문완료") continue;
 
     const storeName = normalizeStoreName(String(record["가게이름"] ?? "").trim()) || "미상";
     const saleDate = String(record["주문일자"] ?? "").trim() || "";
@@ -675,9 +679,12 @@ export function parseSalesReport(buffer: ArrayBuffer): ParsedSalesReport {
     headerKeys.includes("메뉴유형") &&
     headerKeys.includes("가게명") &&
     headerKeys.includes("주문금액");
+  // 배민 리포트는 "가게별 주문 상세(취소 포함)"(주문상태 컬럼 있음, 주문완료만 걸러야 함)와
+  // "가게별 주문 상세(옵션)"(주문상태 컬럼 자체가 없음 — 이 리포트는 완료 주문만 내려줌)
+  // 두 형식이 있다. 둘 다 나머지 컬럼 구조(가게이름/상품 총 금액/옵션그룹이름 등)는 같다.
   const isBaeminShopOrderDetail =
     headerKeys.includes("가게이름") &&
-    headerKeys.includes("주문상태") &&
+    headerKeys.includes("옵션그룹이름") &&
     headerKeys.includes("상품 총 금액");
 
   if (isBrandOrderReport) return parseBrandOrderReport(raw);
