@@ -458,6 +458,12 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
 
   function flushCurrent() {
     if (!curAccum) return;
+    // 일별 매출 합계는 "주문금액" 컬럼(가게별 주문 상세(옵션) 리포트에는 이 컬럼 자체가 없어
+    // 늘 0으로 잡히는 버그가 있었다)이 아니라, 실제로 집계한 상품 인스턴스 금액의 합으로
+    // 계산한다 — 어차피 주문 총액은 그 주문에 속한 상품 총액의 합과 같아야 하므로 더 안전하다.
+    const sdKey = `${curAccum.storeName}${KEY_SEP}${curAccum.saleDate}`;
+    revenueByStoreDate.set(sdKey, (revenueByStoreDate.get(sdKey) ?? 0) + curAccum.revenue);
+
     const key = `${curAccum.storeName}${KEY_SEP}${curAccum.productName}${KEY_SEP}${curAccum.saleDate}`;
     const existing = productGroups.get(key);
     if (existing) {
@@ -513,7 +519,6 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
       seenOrderIds.add(orderNo);
       const sdKey = `${storeName}${KEY_SEP}${saleDate}`;
       orderCountByStoreDate.set(sdKey, (orderCountByStoreDate.get(sdKey) ?? 0) + 1);
-      revenueByStoreDate.set(sdKey, (revenueByStoreDate.get(sdKey) ?? 0) + toNumber(record["주문금액"]));
     }
 
     if (!productName) continue;
