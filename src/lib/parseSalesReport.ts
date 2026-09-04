@@ -135,7 +135,8 @@ export function classifyOptionSelection(rawName: string): { category: string; op
     const stripped = name.replace(/^\[리뷰\+사진\]/, "");
     return { category: "리뷰이벤트", optionName: stripped || "선택 안함" };
   }
-  if (name === "M" || name === "L") return { category: "사이즈", optionName: name };
+  const sizeName = normalizeSizeName(name);
+  if (sizeName === "M" || sizeName === "L") return { category: "사이즈", optionName: sizeName };
   const dough = normalizeDoughName(name);
   if (DOUGH_NAMES.has(dough)) return { category: "도우 선택", optionName: dough };
   if (TOPPING_BASE_NAMES.some((base) => name.startsWith(`${base}(`))) return { category: "추가토핑", optionName: name };
@@ -167,15 +168,24 @@ function toNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// 같은 매장인데 리포트마다 표기가 갈리는 경우(예: 요기요가 어떤 날짜엔 "갈산점",
+// 다른 날짜엔 "부평갈산점"으로 내려줌 — 쿠팡이츠 크롤링(매장ID 1057915)에서도 동일한
+// 매장이 같은 이유로 둘로 쪼개졌던 적이 있다, automation/COUPANG_CATCHUP_SOP.md 13절
+// 참고). 여기서 강제로 하나로 합쳐서 매출/옵션이 갈라지지 않게 한다.
+const STORE_NAME_ALIASES: Record<string, string> = {
+  "보스피자-부평갈산점": "보스피자-갈산점",
+};
+
 // 배달앱마다 매장명 표기가 달라서("B.BOSS피자 하남미사점" vs "보스피자-하남미사점")
 // 같은 매장이 필터에서 따로 잡히지 않도록 "보스피자-XX점" 형태로 통일한다.
 // (리뷰 리포트 파서도 그대로 재사용 — parseReviewReport.ts)
 export function normalizeStoreName(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return trimmed;
-  if (trimmed.startsWith("보스피자-")) return trimmed;
+  if (trimmed.startsWith("보스피자-")) return STORE_NAME_ALIASES[trimmed] ?? trimmed;
   const match = trimmed.match(/(\S+점)\s*$/);
-  return match ? `보스피자-${match[1]}` : trimmed;
+  const normalized = match ? `보스피자-${match[1]}` : trimmed;
+  return STORE_NAME_ALIASES[normalized] ?? normalized;
 }
 
 function isZipBuffer(buffer: ArrayBuffer): boolean {
