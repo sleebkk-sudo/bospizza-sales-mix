@@ -337,3 +337,29 @@ async function run(anonKey, storeId, minDate) { // minDate = "어제" ISO, 예: 
 storeName = "보스피자-갈산점";` 보정 한 줄을 넣어서, 앞으로도 계속 정규화 결과를
 `갈산점`으로 강제한다. 이 ID를 다시 처리할 때 이 보정 줄을 빼먹지 말 것 — 빼먹으면
 또 갈라진다.
+
+### 12-1. 스크립트를 localStorage에 한 번만 저장 → 매장당 호출 한 줄 (2026-09-07 검증, 48/48, ACCESS_DENIED 0)
+
+`navigate`는 페이지를 리로드해 `window` 함수가 사라지지만 **localStorage는 같은 origin
+(store.coupangeats.com)에서 살아남는다.** 그래서 7KB짜리 `run()` 소스를 매장마다 다시
+보내지 않고, 세션 최초 1회만 저장한 뒤 매장별로는 한 줄만 실행하면 된다:
+
+```js
+// 최초 1회 (아무 쿠팡 탭에서)
+async function run(anonKey, storeId, minDate, maxDate) { /* 12절 스크립트, 날짜 필터는
+  d >= minDate && d < maxDate — maxDate=오늘(부분 집계 제외) */ }
+localStorage.setItem('__bpRunSrc', run.toString());
+localStorage.setItem('__bpKey', ANON_KEY);
+
+// 매장별 (browser_batch 안에서 navigate → wait 2s → 아래 한 줄, 10매장씩 묶어도 안정적)
+const run=new Function('return '+localStorage.getItem('__bpRunSrc'))();
+return await run(localStorage.getItem('__bpKey'),1057866,'2026-09-04','2026-09-07');
+```
+
+- browser_batch 1회에 **10매장(navigate+wait+js ×10)** 까지 타임아웃 없이 돌아감 → 48매장이
+  배치 5번으로 끝난다(이전엔 매장당 1콜 × 7KB).
+- `minDate`는 DB의 `store_daily_stats` 최신 sale_date(쿠팡이츠) 다음날로 잡되, 하루가
+  통째로 덮어써져도 merge-duplicates라 문제없으니 "마지막 반영일 당일"부터 다시 넣어도 됨
+  (예: 9/4에 1개 매장만 들어가 있던 상태에서 minDate=9/4로 재실행 → 정상).
+- 검증은 마지막 배치 끝에 `store_daily_stats`를 날짜별 집계해서 매장수/주문수/매출을 찍고,
+  `store_name`이 `보스피자-XX점` 패턴을 벗어난 게 없는지(갈산점 이슈) 같이 확인.
