@@ -363,3 +363,40 @@ return await run(localStorage.getItem('__bpKey'),1057866,'2026-09-04','2026-09-0
   (예: 9/4에 1개 매장만 들어가 있던 상태에서 minDate=9/4로 재실행 → 정상).
 - 검증은 마지막 배치 끝에 `store_daily_stats`를 날짜별 집계해서 매장수/주문수/매출을 찍고,
   `store_name`이 `보스피자-XX점` 패턴을 벗어난 게 없는지(갈산점 이슈) 같이 확인.
+
+## 14. 캐치업용 통합 run() — 날짜확장 + 페이지네이션 내장 (2026-09-28 검증, 48/48, ACCESS_DENIED 0)
+
+12절 데일리 run()은 **기본 7일 범위 + 1페이지만** 읽는다. 마지막 반영일이 **8일 이상**
+밀렸을 때(이번엔 9/16 → 9/28, 11일치)는 이걸로는 두 군데가 새는데, 이 절의 통합 run()이
+두 문제를 매장당 한 번에 해결한다:
+
+1. **날짜 범위**: 매장 진입 시 기본이 "최근 7일"이라 그보다 오래된 날은 화면에 없다 →
+   run() 안에서 6절의 "1개월" 프리셋 확장(`.css-1uvczjr` 열기 → "1개월" → `defaultOutlined`
+   검색 버튼)을 **매장마다 자동 실행**한 뒤 추출한다.
+2. **페이지네이션**: 11일치를 열면 바쁜 매장은 주문이 10건(1페이지)을 넘는다(이번에 삼동
+   29·오산세교 29·신림녹두 25건 등, 3페이지까지). 1페이지만 읽으면 과소집계 → run()이
+   페이지 버튼을 눌러가며 최신순으로 훑고, **한 페이지에서 `date < minDate`가 나오면 그
+   시점에 멈춘다**(더 오래된 페이지는 볼 필요 없음). 한 페이지가 10건 미만이면 마지막
+   페이지로 보고 종료.
+
+그 외 규칙(취소·재주문 스킵, 옵션 분류, 갈산 보정, `total_qty=order_count`,
+`total_revenue`=그날 메뉴매출 합)은 12절과 동일. 네 테이블(`menu_sales_items`,
+`store_daily_stats`, `menu_option_selections`, `stores`)을 한 호출에 upsert한다.
+
+- **호출은 12-1절과 동일**: `run.toString()`을 localStorage(`__bpRunSrc`)에 1회 저장 후
+  `navigate → wait 2.5s → run(...)`을 browser_batch로 **매장 5~6개씩** 묶는다(날짜확장·
+  페이지네이션이 붙어 매장당 6~10초라 10개는 CDP 45초 타임아웃에 걸릴 수 있음 → 5~6개 권장).
+- `minDate` = DB 최신 sale_date(당일부터 재삽입해도 merge-duplicates라 무방),
+  `maxDate` = 오늘(부분집계 제외). 필터는 `minDate <= d < maxDate`.
+- **일시 `Failed to fetch`**: 브라우저→Supabase 크로스오리진 POST가 간헐적으로 한 번씩
+  실패할 수 있다(이번에 안산대점 1057897에서 2회 연속 났다가 그 다음 바로 성공). 전역
+  차단이 아니라 blip이므로 **그 매장만 다시 run()** 하면 된다(GET/POST 테스트로 차단 아닌지
+  먼저 확인). run()은 첫 upsert(`menu_sales_items`)에서 던지므로 부분삽입 걱정 없음.
+- **`store_daily_stats.total_revenue`는 NOT NULL** — 12절 초기 스켈레톤엔 빠져 있었으니
+  반드시 그날 매출 합(`sum(item price)`)을 넣을 것. 옵션 유니크 키는
+  `(sale_date, store_name, channel, category, option_name)`.
+- 검증(2026-09-28): 9/17~9/27 반영, 45개 매장 판매(3개 0건: 학익·녹번역·파주다율), 444주문/
+  15,217,800원, 매장명 패턴 위반 0·갈산 split 0·`menu_sales_items` 매출합 = `total_revenue` 합 일치.
+
+이번 회차에 실제로 쓴 통합 run() 전체 소스는 `automation/coupang_catchup_run.js`에 저장해뒀다
+(다음 캐치업 때 그대로 localStorage에 넣고 매장 ID만 바꿔 돌리면 됨).
