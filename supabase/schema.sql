@@ -126,3 +126,39 @@ create index if not exists reviews_review_date_idx on reviews (review_date);
 create index if not exists reviews_store_name_idx on reviews (store_name);
 create index if not exists reviews_sentiment_idx on reviews (sentiment);
 create index if not exists reviews_channel_idx on reviews (channel);
+
+-- ============================================================
+-- 7. 요기요 일별 할인 정산 — 요기요 사장님광장 "프랜차이즈 정산" 리포트.
+--    매장/상품 구분 없이 프랜차이즈(보스피자) 전체의 일별 합계만 담고
+--    있어 menu_sales_items와는 완전히 다른 입력 형식(parseSalesReport의
+--    브랜드 주문 리포트/배민 리포트 파서로는 파싱되지 않음) — 할인 비용
+--    추이 확인 전용으로 별도 저장한다.
+-- ============================================================
+create table if not exists yogiyo_discount_daily (
+  id uuid primary key default gen_random_uuid(),
+  sale_date date not null,
+  franchise_name text not null,
+  week_label text,
+  weekday text,
+  menu_amount bigint not null,
+  delivery_amount bigint not null,
+  total_order_amount bigint not null,
+  franchise_discount_brand_amount bigint not null default 0,
+  franchise_discount_brand_rate numeric,
+  franchise_discount_store_amount bigint not null default 0,
+  franchise_discount_store_rate numeric,
+  franchise_discount_yogiyo_amount bigint not null default 0,
+  franchise_discount_yogiyo_rate numeric,
+  store_coupon_discount_brand_amount bigint not null default 0,
+  store_coupon_discount_brand_rate numeric,
+  store_coupon_discount_store_amount bigint not null default 0,
+  store_coupon_discount_store_rate numeric,
+  store_coupon_discount_yogiyo_amount bigint not null default 0,
+  store_coupon_discount_yogiyo_rate numeric,
+  store_discount_amount bigint not null default 0,
+  yotimedeal_discount_amount bigint not null default 0,
+  delivery_fee_discount_amount bigint not null default 0,
+  total_discount_amount bigint not null default 0,
+  unique (franchise_name, sale_date)
+);
+create index if not exists yogiyo_discount_daily_sale_date_idx on yogiyo_discount_daily (sale_date);
