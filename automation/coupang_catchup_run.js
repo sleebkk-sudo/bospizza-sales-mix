@@ -1,5 +1,6 @@
 // 보스피자 쿠팡이츠 캐치업용 통합 run() — 날짜확장(1개월) + 페이지네이션 내장
-// COUPANG_CATCHUP_SOP.md 14절 참고. 2026-09-28 검증 (48/48, ACCESS_DENIED 0).
+// COUPANG_CATCHUP_SOP.md 14절·14-1절 참고. 2026-09-28 검증 (48/48, ACCESS_DENIED 0).
+// 2026-10-16 수정: (1) 날짜확장 검증+재시도, (2) 페이지네이션 마지막페이지 오판 버그 수정 — 14-1절.
 //
 // 사용법 (store.coupangeats.com 아무 매장 탭에서):
 //   1) 이 파일의 run 함수를 정의한 뒤:
@@ -36,20 +37,33 @@ async function run(anonKey, storeId, minDate, maxDate) {
   if (!nameEl) return { error: "NO_STORE_NAME", storeId };
   const storeName = normName(nameEl.textContent.trim());
 
-  // --- 날짜 범위 "1개월" 확장 (SOP 6절) ---
-  const wrapper = Array.from(document.querySelectorAll("div")).find(
-    (e) => /\d{4}\.\d{2}\.\d{2}\s*-\s*\d{4}\.\d{2}\.\d{2}/.test(e.textContent.trim()) && e.textContent.trim().length < 40
-  );
-  if (wrapper) {
+  // --- 날짜 범위 "1개월" 확장 (SOP 6절) — 적용됐는지 화면 범위 텍스트로 검증하고 최대 3회 재시도 ---
+  // 클릭이 씹혀 7일 기본범위에 머문 채 긁으면 minDate 이전 날짜가 통째로 빠지는데 에러는 안 난다.
+  // 그래서 표시된 범위의 시작일이 minDate 이하가 될 때까지 다시 시도하고, 결과에 rangeOK로 돌려준다.
+  function rangeTxt() {
+    const w = Array.from(document.querySelectorAll("div")).find(
+      (e) => /\d{4}\.\d{2}\.\d{2}\s*-\s*\d{4}\.\d{2}\.\d{2}/.test(e.textContent.trim()) && e.textContent.trim().length < 40
+    );
+    return w ? (w.textContent.match(/\d{4}\.\d{2}\.\d{2}\s*-\s*\d{4}\.\d{2}\.\d{2}/) || [""])[0] : "";
+  }
+  function rangeStart(t) { const m = t.match(/(\d{4})\.(\d{2})\.(\d{2})/); return m ? m[1] + "-" + m[2] + "-" + m[3] : ""; }
+  let rangeNow = rangeTxt();
+  for (let attempt = 0; attempt < 3 && !(rangeStart(rangeNow) && rangeStart(rangeNow) <= minDate); attempt++) {
+    const wrapper = Array.from(document.querySelectorAll("div")).find(
+      (e) => /\d{4}\.\d{2}\.\d{2}\s*-\s*\d{4}\.\d{2}\.\d{2}/.test(e.textContent.trim()) && e.textContent.trim().length < 40
+    );
+    if (!wrapper) break;
     rClick(wrapper.querySelector(".css-1uvczjr") || wrapper);
-    await sleep(500);
+    await sleep(600);
     const om = Array.from(document.querySelectorAll("*")).find((e) => e.children.length === 0 && e.textContent.trim() === "1개월");
     if (om) rClick(om);
-    await sleep(200);
+    await sleep(300);
     const sb = Array.from(document.querySelectorAll("button")).find((b) => b.className.includes("defaultOutlined") && b.offsetParent !== null);
     if (sb) rClick(sb);
-    await sleep(2300);
+    await sleep(2500);
+    rangeNow = rangeTxt();
   }
+  const rangeOK = !!(rangeStart(rangeNow) && rangeStart(rangeNow) <= minDate);
 
   // --- 옵션 분류 (src/lib/parseSalesReport.ts classifyOptionSelection과 동일) ---
   const DOUGH = new Set(["기본 도우", "고구마링", "치즈크러스트", "크림치즈링", "더블치즈크러스트"]);
@@ -82,7 +96,7 @@ async function run(anonKey, storeId, minDate, maxDate) {
   }
   function extractPage() {
     const content = document.querySelector(".order-search-result-content");
-    if (!content) return document.body.textContent.includes("조회할 내역이 없습니다") ? [] : null;
+    if (!content) return document.body.textContent.includes("조회할 내역이 없습니다") ? { orders: [], raw: 0 } : null;
     const out = [];
     for (const row of [...content.children]) {
       const rt = row.textContent;
@@ -102,29 +116,28 @@ async function run(anonKey, storeId, minDate, maxDate) {
       }
       out.push({ date: date.replace(/\./g, "-"), items });
     }
-    return out;
+    // raw = 실제 주문 행 수(취소·재주문 포함). 마지막 페이지 판정은 반드시 이걸로 할 것 —
+    // 걸러낸 뒤 개수(out.length)로 판정하면 취소건이 섞인 페이지를 "마지막 페이지(10건 미만)"로
+    // 오인해 그 뒤 페이지를 통째로 놓친다. 2026-10-16 송산새솔 19건→50건으로 발견. (SOP 14-1절)
+    return { orders: out, raw: [...content.children].filter((r) => r.querySelector(".order-item")).length };
   }
 
   // --- 페이지네이션: 최신순으로 훑다가 minDate 미만 나오면 중단 ---
+  // "다음" 버튼(.next-btn)으로 넘기고, 마지막 페이지는 raw 행 수(<10)로 판정한다. 숫자 버튼은 창이
+  // 슬라이딩돼 뒤 페이지가 안 보일 수 있고, 걸러낸 건수로 판정하면 취소건 있는 페이지에서 조기 종료된다.
   const seen = new Set();
   const all = [];
   let stop = false;
-  for (let pg = 1; pg <= 10 && !stop; pg++) {
+  for (let pg = 1; pg <= 20 && !stop; pg++) {
     if (pg > 1) {
-      const btn = [...document.querySelectorAll("button,a")].find(
-        (b) => b.textContent.trim() === String(pg) && b.offsetParent !== null &&
-          /pagination|page/i.test((b.className || "") + ((b.closest("[class*=pagination]") || {}).className || ""))
-      );
-      if (!btn) {
-        const alt = [...document.querySelectorAll("[class*=pagination] button,[class*=pagination] a")].find((b) => b.textContent.trim() === String(pg));
-        if (!alt) break;
-        rClick(alt);
-      } else rClick(btn);
-      await sleep(1500);
+      const nb = document.querySelector("[class*=pagination] .next-btn, [class*=pagination] button.next-btn");
+      if (!nb || nb.disabled || /disabled/.test(nb.className || "")) break;
+      rClick(nb);
+      await sleep(1600);
     }
-    const pageOrders = extractPage();
-    if (pageOrders === null) { await sleep(1500); }
-    const po = pageOrders || [];
+    let pr = extractPage();
+    if (pr === null) { await sleep(1500); pr = extractPage() || { orders: [], raw: 0 }; }
+    const po = pr.orders;
     let anyOld = false;
     for (const o of po) {
       const key = o.date + "|" + JSON.stringify(o.items);
@@ -135,7 +148,7 @@ async function run(anonKey, storeId, minDate, maxDate) {
       all.push(o);
     }
     if (anyOld) stop = true;
-    if (po.length < 10) break;
+    if (pr.raw < 10) break; // raw 기준 — 필터 후 개수(po.length) 아님
   }
 
   // --- 집계 ---
@@ -175,5 +188,6 @@ async function run(anonKey, storeId, minDate, maxDate) {
   await up("menu_option_selections", optRows, "sale_date,store_name,channel,category,option_name", "resolution=merge-duplicates,return=minimal");
   await up("stores", [{ name: storeName, first_seen: minDate }], "name", "resolution=ignore-duplicates,return=minimal");
 
-  return { storeName, orders: all.length, days: [...day.keys()].sort(), menuRows: menuRows.length, optRows: optRows.length };
+  // range/rangeOK: 호출한 쪽에서 rangeOK===false 인 매장은 재실행 대상으로 걸러낼 것.
+  return { storeName, range: rangeNow, rangeOK, orders: all.length, days: [...day.keys()].sort(), menuRows: menuRows.length, optRows: optRows.length };
 }
