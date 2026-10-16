@@ -112,7 +112,13 @@ export async function POST(request: NextRequest) {
     }
   }
   // 자체 4컬럼 템플릿(channel/saleDate 없음)은 스냅샷 단위로만 대체된다.
-  await supabase.from("menu_sales_items").delete().eq("snapshot_id", snapshot.id);
+  // 브랜드 리포트는 위에서 (채널, 날짜) 단위로 이미 지웠으므로 스냅샷 단위 삭제를
+  // 타면 안 된다 — 같은 기간의 요기요 파일과 배민 파일은 같은 스냅샷을 공유하는데,
+  // 여기서 snapshot_id로 지우면 먼저 올린 채널의 행이 통째로 사라진다
+  // (2026-10-16, 9/21~10/15 요기요 업로드 후 배민 업로드에서 요기요 메뉴 행 전부 유실).
+  if (uploadChannels.length === 0) {
+    await supabase.from("menu_sales_items").delete().eq("snapshot_id", snapshot.id);
+  }
 
   const { error: itemsError } = await supabase.from("menu_sales_items").insert(
     parsed.rows.map((row) => ({
