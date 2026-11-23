@@ -162,3 +162,72 @@ create table if not exists yogiyo_discount_daily (
   unique (franchise_name, sale_date)
 );
 create index if not exists yogiyo_discount_daily_sale_date_idx on yogiyo_discount_daily (sale_date);
+
+-- ============================================================
+-- 8. 대시보드 집계 함수 — 한 화면에 필요한 집계(메뉴/매장/일별 추이/반반 조합/옵션)를
+--    Postgres에서 한 번에 계산해 jsonb로 돌려준다 (src/lib/data.ts getDashboardData).
+--    원본 행을 1000개씩 받아 JS에서 합치면 기간이 넓을 때 왕복이 수십 번 생겨 느렸음.
+-- ============================================================
+create index if not exists menu_option_selections_sale_date_idx
+  on menu_option_selections (sale_date);
+
+create or replace function get_dashboard(p_from date, p_to date, p_store text default null, p_channel text default null)
+returns jsonb
+language sql
+stable
+as $$
+with items as (
+  select category, product_name, store_name, qty, revenue
+  from menu_sales_items
+  where sale_date between p_from and p_to
+    and (p_store is null or store_name = p_store)
+    and (p_channel is null or channel = p_channel)
+),
+daily as (
+  select sale_date, store_name, order_count, total_revenue
+  from store_daily_stats
+  where sale_date between p_from and p_to
+    and (p_store is null or store_name = p_store)
+    and (p_channel is null or channel = p_channel)
+),
+menu as (
+  select product_name, min(category) as category, sum(qty) as qty, sum(revenue) as revenue
+  from items group by product_name
+),
+store_items as (
+  select store_name, sum(qty) as qty, sum(revenue) as revenue
+  from items where store_name is not null group by store_name
+),
+store_orders as (
+  select store_name, sum(order_count) as order_count from daily group by store_name
+),
+trend as (
+  select sale_date, sum(total_revenue) as revenue from daily group by sale_date
+),
+combos as (
+  select combo_label, sum(qty) as qty
+  from menu_option_combos
+  where sale_date between p_from and p_to
+    and (p_store is null or store_name = p_store)
+    and (p_channel is null or channel = p_channel)
+  group by combo_label
+),
+opts as (
+  select category, option_name, sum(qty) as qty, sum(revenue) as revenue
+  from menu_option_selections
+  where sale_date between p_from and p_to
+    and (p_store is null or store_name = p_store)
+    and (p_channel is null or channel = p_channel)
+  group by category, option_name
+)
+select jsonb_build_object(
+  'menu', (select coalesce(jsonb_agg(jsonb_build_object('productName', product_name, 'category', category, 'qty', qty, 'revenue', revenue) order by revenue desc), '[]'::jsonb) from menu),
+  'stores', (select coalesce(jsonb_agg(jsonb_build_object('storeName', si.store_name, 'qty', si.qty, 'revenue', si.revenue, 'orderCount', coalesce(so.order_count, 0)) order by si.revenue desc), '[]'::jsonb)
+             from store_items si left join store_orders so on so.store_name = si.store_name),
+  'trend', (select coalesce(jsonb_agg(jsonb_build_object('label', to_char(sale_date, 'YYYY-MM-DD'), 'revenue', revenue) order by sale_date), '[]'::jsonb) from trend),
+  'orderCount', (select coalesce(sum(order_count), 0) from daily),
+  'statsRevenue', (select coalesce(sum(total_revenue), 0) from daily),
+  'combos', (select coalesce(jsonb_agg(jsonb_build_object('label', combo_label, 'qty', qty)), '[]'::jsonb) from combos),
+  'options', (select coalesce(jsonb_agg(jsonb_build_object('category', category, 'name', option_name, 'qty', qty, 'revenue', revenue)), '[]'::jsonb) from opts)
+);
+$$;

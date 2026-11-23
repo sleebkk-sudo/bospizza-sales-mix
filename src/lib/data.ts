@@ -13,24 +13,6 @@ export type SalesItem = {
   channel: string | null;
 };
 
-export type DailyStat = {
-  sale_date: string;
-  store_name: string;
-  channel: string;
-  order_count: number;
-  total_qty: number;
-  total_revenue: number;
-};
-
-export type ComboRow = {
-  sale_date: string;
-  store_name: string | null;
-  channel: string | null;
-  base_product: string;
-  combo_label: string;
-  qty: number;
-};
-
 const CHANNELS = ["요기요", "배민", "쿠팡이츠"] as const;
 
 // Supabase(PostgREST)는 별도 range 지정이 없으면 결과를 최대 1000행으로 잘라서 돌려준다
@@ -58,16 +40,6 @@ async function fetchAllRows<T>(
 // 옵션별 판매 믹스에 노출할 카테고리 — 정식 옵션 가격표(optionPriceCatalog)에 등록된
 // 카테고리만 다룬다 ("사이드 선택"처럼 가격표에 없는 카테고리는 제외).
 const OPTION_CATEGORIES = OPTION_CATALOG_CATEGORIES;
-
-export type OptionSelectionRow = {
-  sale_date: string;
-  store_name: string | null;
-  channel: string;
-  category: string;
-  option_name: string;
-  qty: number;
-  revenue: number;
-};
 
 export type Review = {
   id: string;
@@ -143,73 +115,38 @@ export async function getItemsInRange(
   });
 }
 
-export async function getDailyStatsInRange(
-  from: string,
-  to: string,
-  store: string | null,
-  channel: string | null
-): Promise<DailyStat[]> {
-  return fetchAllRows<DailyStat>((rangeFrom, rangeTo) => {
-    let query = supabase
-      .from("store_daily_stats")
-      .select("sale_date, store_name, channel, order_count, total_qty, total_revenue")
-      .gte("sale_date", from)
-      .lte("sale_date", to)
-      .order("id", { ascending: true })
-      .range(rangeFrom, rangeTo);
-    if (store) query = query.eq("store_name", store);
-    if (channel) query = query.eq("channel", channel);
-    return query as unknown as PromiseLike<{ data: DailyStat[] | null }>;
-  });
-}
-
-// menu_option_combos에는 메뉴명에 "반반"이 포함된 상품(반반피자, 반반피자+사이드+음료
-// 등)의 맛 조합만 쌓인다. base_product로 따로 안 나누고 전부 합쳐서 "반반 조합 전체"로 본다.
-export async function getCombosInRange(
-  from: string,
-  to: string,
-  store: string | null,
-  channel: string | null
-): Promise<ComboRow[]> {
-  return fetchAllRows<ComboRow>((rangeFrom, rangeTo) => {
-    let query = supabase
-      .from("menu_option_combos")
-      .select("sale_date, store_name, channel, base_product, combo_label, qty")
-      .gte("sale_date", from)
-      .lte("sale_date", to)
-      .order("id", { ascending: true })
-      .range(rangeFrom, rangeTo);
-    if (store) query = query.eq("store_name", store);
-    if (channel) query = query.eq("channel", channel);
-    return query as unknown as PromiseLike<{ data: ComboRow[] | null }>;
-  });
-}
-
 // 피자 맛 선택을 제외한 옵션(사이즈/도우/토핑/추가메뉴/음료/리뷰이벤트/사이드) 카테고리 목록.
 export function getOptionCategories(): readonly string[] {
   return OPTION_CATEGORIES;
 }
 
-export async function getOptionSelectionsInRange(
+export type DashboardData = {
+  menu: { productName: string; category: string; qty: number; revenue: number }[];
+  stores: { storeName: string; qty: number; revenue: number; orderCount: number }[];
+  trend: { label: string; revenue: number }[];
+  orderCount: number;
+  statsRevenue: number;
+  combos: { label: string; qty: number }[];
+  options: { category: string; name: string; qty: number; revenue: number }[];
+};
+
+// 대시보드 한 화면에 필요한 집계를 Postgres 함수(get_dashboard, supabase/schema.sql)에서
+// 한 번에 받아온다. 원본 행을 1000개씩 페이지네이션해 가져와 JS에서 합치던 방식은
+// 조회 기간이 넓어지면 왕복이 수십 번 생겨 필터 클릭이 수 초씩 걸렸다.
+export async function getDashboardData(
   from: string,
   to: string,
   store: string | null,
-  channel: string | null,
-  category: string | null
-): Promise<OptionSelectionRow[]> {
-  return fetchAllRows<OptionSelectionRow>((rangeFrom, rangeTo) => {
-    let query = supabase
-      .from("menu_option_selections")
-      .select("sale_date, store_name, channel, category, option_name, qty, revenue")
-      .gte("sale_date", from)
-      .lte("sale_date", to)
-      .order("id", { ascending: true })
-      .range(rangeFrom, rangeTo);
-    if (store) query = query.eq("store_name", store);
-    if (channel) query = query.eq("channel", channel);
-    if (category) query = query.eq("category", category);
-    return query as unknown as PromiseLike<{ data: OptionSelectionRow[] | null }>;
+  channel: string | null
+): Promise<DashboardData> {
+  const { data, error } = await supabase.rpc("get_dashboard", {
+    p_from: from,
+    p_to: to,
+    p_store: store,
+    p_channel: channel,
   });
+  if (error) throw new Error(`get_dashboard failed: ${error.message}`);
+  return data as DashboardData;
 }
 
 export async function getReviewsInRange(
