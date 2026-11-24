@@ -6,19 +6,12 @@ import { MenuMixSection } from "@/components/MenuMixSection";
 import { ComboMixSection } from "@/components/ComboMixSection";
 import { OptionMixSection } from "@/components/OptionMixSection";
 import { TrendChart } from "@/components/TrendChart";
-import {
-  getDateBounds,
-  getStoreNames,
-  getChannels,
-  getItemsInRange,
-  getDailyStatsInRange,
-  getCombosInRange,
-  getOptionSelectionsInRange,
-  getOptionCategories,
-} from "@/lib/data";
+import { getDateBounds, getStoreNames, getChannels, getDashboardData, getOptionCategories } from "@/lib/data";
 import { normalizeOptionName, isCatalogOption } from "@/lib/optionPriceCatalog";
 
 export const dynamic = "force-dynamic";
+// Supabase 프로젝트가 ap-southeast-1(싱가포르)에 있어 같은 지역에서 실행해야 DB 왕복이 짧다.
+export const preferredRegion = "sin1";
 
 function fmt(d: Date) {
   return format(d, "yyyy-MM-dd");
@@ -77,43 +70,24 @@ export default async function DashboardPage({
   const store = sp.store && sp.store !== "all" ? sp.store : null;
   const channel = sp.channel && sp.channel !== "all" ? sp.channel : null;
 
-  const [items, dailyStats, combos, optionSelections] = await Promise.all([
-    getItemsInRange(from, to, store, channel),
-    getDailyStatsInRange(from, to, store, channel),
-    getCombosInRange(from, to, store, channel),
-    getOptionSelectionsInRange(from, to, store, channel, null),
-  ]);
+  const data = await getDashboardData(from, to, store, channel);
   const optionCategories = getOptionCategories();
 
-  const totalRevenue = items.reduce((sum, i) => sum + i.revenue, 0);
-  const pizzaQty = items.filter((i) => i.category === "피자").reduce((sum, i) => sum + i.qty, 0);
-  const orderCount = dailyStats.reduce((sum, d) => sum + d.order_count, 0);
-  const statsRevenue = dailyStats.reduce((sum, d) => sum + d.total_revenue, 0);
-  const avgTicket = orderCount > 0 ? Math.round(statsRevenue / orderCount) : null;
+  const menuMix = data.menu;
+  const totalRevenue = menuMix.reduce((sum, m) => sum + m.revenue, 0);
+  const pizzaQty = menuMix.filter((m) => m.category === "피자").reduce((sum, m) => sum + m.qty, 0);
+  const orderCount = data.orderCount;
+  const avgTicket = orderCount > 0 ? Math.round(data.statsRevenue / orderCount) : null;
   const pizzasPerOrder = orderCount > 0 ? pizzaQty / orderCount : null;
 
-  const productTotals = new Map<string, { category: string; qty: number; revenue: number }>();
-  for (const item of items) {
-    const existing = productTotals.get(item.product_name);
-    if (existing) {
-      existing.qty += item.qty;
-      existing.revenue += item.revenue;
-    } else {
-      productTotals.set(item.product_name, { category: item.category, qty: item.qty, revenue: item.revenue });
-    }
-  }
-  const menuMix = [...productTotals.entries()]
-    .map(([productName, v]) => ({ productName, ...v }))
-    .sort((a, b) => b.revenue - a.revenue);
-
   const categoryTotals = new Map<string, { qty: number; revenue: number }>();
-  for (const item of items) {
-    const existing = categoryTotals.get(item.category);
+  for (const m of menuMix) {
+    const existing = categoryTotals.get(m.category);
     if (existing) {
-      existing.qty += item.qty;
-      existing.revenue += item.revenue;
+      existing.qty += m.qty;
+      existing.revenue += m.revenue;
     } else {
-      categoryTotals.set(item.category, { qty: item.qty, revenue: item.revenue });
+      categoryTotals.set(m.category, { qty: m.qty, revenue: m.revenue });
     }
   }
   const categoryMix = [...categoryTotals.entries()]
@@ -124,52 +98,21 @@ export default async function DashboardPage({
   // 소스·음료까지 합친 전체 메뉴 개수라 판수로 오해하기 쉬워서 표에는 내지 않는다
   // (2026-11-24, 41개를 41판으로 읽은 사례). 피자판수는 상단 "총 피자판수"와 같은 기준
   // (피자 카테고리 수량)이다 — L/M 옵션 수로 세면 단일 사이즈 피자와 요기요 다판 주문이 빠진다.
-  const storeTotals = new Map<string, { qty: number; pizzaQty: number; revenue: number; orderCount: number }>();
-  for (const item of items) {
-    if (!item.store_name) continue;
-    const pizzaQtyOfItem = item.category === "피자" ? item.qty : 0;
-    const existing = storeTotals.get(item.store_name);
-    if (existing) {
-      existing.qty += item.qty;
-      existing.pizzaQty += pizzaQtyOfItem;
-      existing.revenue += item.revenue;
-    } else {
-      storeTotals.set(item.store_name, {
-        qty: item.qty,
-        pizzaQty: pizzaQtyOfItem,
-        revenue: item.revenue,
-        orderCount: 0,
-      });
-    }
-  }
-  for (const d of dailyStats) {
-    const existing = storeTotals.get(d.store_name);
-    if (existing) existing.orderCount += d.order_count;
-  }
-  const storeMix = [...storeTotals.entries()]
-    .map(([storeName, v]) => ({
-      storeName,
-      ...v,
-      avgTicket: v.orderCount > 0 ? Math.round(v.revenue / v.orderCount) : null,
-    }))
-    .sort((a, b) => b.revenue - a.revenue);
+  const storeMix = data.stores.map((s) => ({
+    ...s,
+    avgTicket: s.orderCount > 0 ? Math.round(s.revenue / s.orderCount) : null,
+  }));
 
-  const trendMap = new Map<string, number>();
-  for (const d of dailyStats) {
-    trendMap.set(d.sale_date, (trendMap.get(d.sale_date) ?? 0) + d.total_revenue);
-  }
-  const trend = [...trendMap.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([label, revenue]) => ({ label, revenue }));
+  const trend = data.trend;
 
   const optionMixByCategory: Record<string, { name: string; qty: number; revenue: number }[]> = {};
   for (const category of optionCategories) {
     const totalsByName = new Map<string, { qty: number; revenue: number }>();
-    for (const o of optionSelections) {
+    for (const o of data.options) {
       if (o.category !== category) continue;
       // 정식 옵션 가격표에 없는 옵션(오분류·원본 표기 차이로 섞여든 값)은 노출하지 않는다.
-      if (!isCatalogOption(category, o.option_name)) continue;
-      const name = normalizeOptionName(category, o.option_name);
+      if (!isCatalogOption(category, o.name)) continue;
+      const name = normalizeOptionName(category, o.name);
       const existing = totalsByName.get(name);
       if (existing) {
         existing.qty += o.qty;
@@ -196,8 +139,8 @@ export default async function DashboardPage({
 
   const comboTotals = new Map<string, number>();
   const flavorTotals = new Map<string, number>();
-  for (const c of combos) {
-    const label = canonicalComboLabel(c.combo_label);
+  for (const c of data.combos) {
+    const label = canonicalComboLabel(c.label);
     comboTotals.set(label, (comboTotals.get(label) ?? 0) + c.qty);
     for (const flavor of label.split(" + ")) {
       flavorTotals.set(flavor, (flavorTotals.get(flavor) ?? 0) + c.qty);
@@ -260,7 +203,7 @@ export default async function DashboardPage({
                 <tr key={s.storeName} className="border-b border-[var(--border)] last:border-0">
                   <td className="py-2">{s.storeName}</td>
                   <td className="py-2 text-right">{s.orderCount > 0 ? `${s.orderCount.toLocaleString()}건` : "-"}</td>
-                  <td className="py-2 text-right">{s.pizzaQty.toLocaleString()}판</td>
+                  <td className="py-2 text-right">{(s.pizzaQty ?? 0).toLocaleString()}판</td>
                   <td className="py-2 text-right">{s.revenue.toLocaleString()}원</td>
                   <td className="py-2 text-right">{s.avgTicket !== null ? `${s.avgTicket.toLocaleString()}원` : "-"}</td>
                   <td className="py-2 text-right">
@@ -284,7 +227,7 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {optionSelections.length > 0 && (
+      {data.options.length > 0 && (
         <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
           <OptionMixSection categories={[...optionCategories]} mixByCategory={optionMixByCategory} />
         </div>
