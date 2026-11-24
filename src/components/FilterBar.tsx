@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { StoreSelect } from "@/components/StoreSelect";
 
 function buildHref(from: string, to: string, store: string, channel: string) {
   const sp = new URLSearchParams();
@@ -107,18 +108,7 @@ export function FilterBar({
           max={maxDate}
           className="h-8 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 text-xs"
         />
-        <select
-          name="store"
-          defaultValue={store}
-          className="h-8 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 text-xs"
-        >
-          <option value="all">전체 매장</option>
-          {stores.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        <StoreSelect stores={stores} defaultValue={store} />
         <select
           name="channel"
           defaultValue={channel}

@@ -7,6 +7,7 @@ import {
   getStoreNames,
 } from "@/lib/data";
 import { MetricCard } from "@/components/MetricCard";
+import { StoreSelect } from "@/components/StoreSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -96,18 +97,7 @@ export default async function ReviewsPage({
                 max={maxDate}
                 className="h-8 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 text-xs"
               />
-              <select
-                name="store"
-                defaultValue={store ?? "all"}
-                className="h-8 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 text-xs"
-              >
-                <option value="all">전체 매장</option>
-                {allStores.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <StoreSelect key={store ?? "all"} stores={allStores} defaultValue={store ?? "all"} />
               <select
                 name="channel"
                 defaultValue={channel ?? "all"}
