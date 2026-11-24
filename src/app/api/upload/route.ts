@@ -218,5 +218,6 @@ export async function POST(request: NextRequest) {
     totalRevenue: parsed.totalRevenue,
     periodStart,
     periodEnd,
+    channels: uploadChannels,
   });
 }

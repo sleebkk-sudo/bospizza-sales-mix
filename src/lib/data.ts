@@ -163,6 +163,46 @@ export async function getDailyStatsInRange(
   });
 }
 
+// 업로드 화면의 "등록 상태" 표에 쓰는 채널 — 파일 업로드로 채우는 채널만 다룬다.
+// 쿠팡이츠는 브랜드 리포트 파일이 없어 매장별 크롤링이 필요해서 수집을 중단했으므로
+// (2026-11-24) 등록 상태 대상에서 뺀다.
+export const REGISTRATION_CHANNELS = ["배민", "요기요"] as const;
+
+export type RegistrationCell = { orders: number; revenue: number; stores: number };
+export type RegistrationDay = {
+  date: string;
+  byChannel: Record<string, RegistrationCell | null>;
+};
+
+// from~to의 날짜마다 채널별로 데이터가 등록돼 있는지(주문 수·매출·매장 수) 돌려준다.
+// 최신 날짜가 먼저 오도록 정렬한다.
+export async function getRegistrationStatus(from: string, to: string): Promise<RegistrationDay[]> {
+  const stats = await getDailyStatsInRange(from, to, null, null);
+  const cells = new Map<string, RegistrationCell>();
+  for (const s of stats) {
+    const key = `${s.sale_date}|${s.channel}`;
+    const cell = cells.get(key) ?? { orders: 0, revenue: 0, stores: 0 };
+    cell.orders += s.order_count;
+    cell.revenue += s.total_revenue;
+    cell.stores += 1;
+    cells.set(key, cell);
+  }
+
+  const days: RegistrationDay[] = [];
+  const cursor = new Date(`${to}T00:00:00Z`);
+  const start = new Date(`${from}T00:00:00Z`);
+  while (cursor >= start) {
+    const date = cursor.toISOString().slice(0, 10);
+    const byChannel: Record<string, RegistrationCell | null> = {};
+    for (const channel of REGISTRATION_CHANNELS) {
+      byChannel[channel] = cells.get(`${date}|${channel}`) ?? null;
+    }
+    days.push({ date, byChannel });
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return days;
+}
+
 // menu_option_combos에는 메뉴명에 "반반"이 포함된 상품(반반피자, 반반피자+사이드+음료
 // 등)의 맛 조합만 쌓인다. base_product로 따로 안 나누고 전부 합쳐서 "반반 조합 전체"로 본다.
 export async function getCombosInRange(

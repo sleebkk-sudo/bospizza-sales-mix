@@ -1,16 +1,39 @@
 import { UploadForm } from "@/components/UploadForm";
+import { RegistrationStatus } from "@/components/RegistrationStatus";
+import { getRegistrationStatus } from "@/lib/data";
 
-export default function UploadPage() {
+// 등록 상태 표는 업로드 직후 바로 바뀌어야 하므로 매 요청마다 새로 조회한다.
+export const dynamic = "force-dynamic";
+
+const STATUS_DAYS = 31;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// 배달앱 리포트는 하루가 끝난 뒤에 나오므로 한국 시간 기준 어제까지를 대상으로 한다.
+function statusRange(): { from: string; to: string } {
+  const yesterday = new Date(Date.now() + KST_OFFSET_MS);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const start = new Date(yesterday);
+  start.setUTCDate(start.getUTCDate() - (STATUS_DAYS - 1));
+  return { from: start.toISOString().slice(0, 10), to: yesterday.toISOString().slice(0, 10) };
+}
+
+export default async function UploadPage() {
+  const { from, to } = statusRange();
+  const days = await getRegistrationStatus(from, to);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold mb-1">매출 데이터 업로드</h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          엑셀/CSV 파일을 올리면 날짜·매장·채널을 파일에서 자동으로 읽어
-          그 기간의 스냅샷으로 저장됩니다. 같은 기간으로 다시 업로드하면
-          기존 데이터를 덮어씁니다.
+          엑셀/CSV 파일을 담고 &quot;등록&quot;을 누르면 날짜·매장·채널을 파일에서 자동으로
+          읽어 저장합니다. 같은 날짜를 다시 등록하면 기존 데이터를 덮어씁니다.
         </p>
       </div>
+
+      <UploadForm />
+
+      <RegistrationStatus days={days} />
 
       <div className="bg-[var(--bg-neutral)] rounded-xl p-4 text-sm text-[var(--text-neutral)] space-y-3">
         <div>
@@ -49,7 +72,6 @@ export default function UploadPage() {
         </div>
       </div>
 
-      <UploadForm />
     </div>
   );
 }

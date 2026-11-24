@@ -260,7 +260,7 @@ export default async function DashboardPage({
         </div>
       )}
 
-      <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4">
+      <div id="menu-mix" className="scroll-mt-4 bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4">
         <p className="text-sm font-medium mb-4">메뉴 믹스</p>
         <MenuMixSection menuMix={menuMix} categoryMix={categoryMix} />
       </div>
