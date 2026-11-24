@@ -120,15 +120,26 @@ export default async function DashboardPage({
     .map(([category, v]) => ({ category, ...v }))
     .sort((a, b) => b.revenue - a.revenue);
 
-  const storeTotals = new Map<string, { qty: number; revenue: number; orderCount: number }>();
+  // 매장별 표는 수량을 "주문 건수"(주문번호당 1건)와 "피자판수"로 나눠 보여준다. qty는
+  // 소스·음료까지 합친 전체 메뉴 개수라 판수로 오해하기 쉬워서 표에는 내지 않는다
+  // (2026-11-24, 41개를 41판으로 읽은 사례). 피자판수는 상단 "총 피자판수"와 같은 기준
+  // (피자 카테고리 수량)이다 — L/M 옵션 수로 세면 단일 사이즈 피자와 요기요 다판 주문이 빠진다.
+  const storeTotals = new Map<string, { qty: number; pizzaQty: number; revenue: number; orderCount: number }>();
   for (const item of items) {
     if (!item.store_name) continue;
+    const pizzaQtyOfItem = item.category === "피자" ? item.qty : 0;
     const existing = storeTotals.get(item.store_name);
     if (existing) {
       existing.qty += item.qty;
+      existing.pizzaQty += pizzaQtyOfItem;
       existing.revenue += item.revenue;
     } else {
-      storeTotals.set(item.store_name, { qty: item.qty, revenue: item.revenue, orderCount: 0 });
+      storeTotals.set(item.store_name, {
+        qty: item.qty,
+        pizzaQty: pizzaQtyOfItem,
+        revenue: item.revenue,
+        orderCount: 0,
+      });
     }
   }
   for (const d of dailyStats) {
@@ -233,11 +244,12 @@ export default async function DashboardPage({
       {!store && storeMix.length > 0 && (
         <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-xl p-4 overflow-x-auto">
           <p className="text-sm font-medium mb-4">매장별 매출 ({storeMix.length}개 매장)</p>
-          <table className="w-full text-sm min-w-[480px]">
+          <table className="w-full text-sm min-w-[520px]">
             <thead>
               <tr className="text-left text-[var(--text-secondary)] border-b border-[var(--border)]">
                 <th className="py-2 font-normal">매장</th>
-                <th className="py-2 font-normal text-right">판매수량</th>
+                <th className="py-2 font-normal text-right">주문 건수</th>
+                <th className="py-2 font-normal text-right">피자판수</th>
                 <th className="py-2 font-normal text-right">매출</th>
                 <th className="py-2 font-normal text-right">건단가</th>
                 <th className="py-2 font-normal text-right">비중</th>
@@ -247,7 +259,8 @@ export default async function DashboardPage({
               {storeMix.map((s) => (
                 <tr key={s.storeName} className="border-b border-[var(--border)] last:border-0">
                   <td className="py-2">{s.storeName}</td>
-                  <td className="py-2 text-right">{s.qty.toLocaleString()}</td>
+                  <td className="py-2 text-right">{s.orderCount > 0 ? `${s.orderCount.toLocaleString()}건` : "-"}</td>
+                  <td className="py-2 text-right">{s.pizzaQty.toLocaleString()}판</td>
                   <td className="py-2 text-right">{s.revenue.toLocaleString()}원</td>
                   <td className="py-2 text-right">{s.avgTicket !== null ? `${s.avgTicket.toLocaleString()}원` : "-"}</td>
                   <td className="py-2 text-right">
