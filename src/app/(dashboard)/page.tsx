@@ -6,7 +6,15 @@ import { MenuMixSection } from "@/components/MenuMixSection";
 import { ComboMixSection } from "@/components/ComboMixSection";
 import { OptionMixSection } from "@/components/OptionMixSection";
 import { TrendChart } from "@/components/TrendChart";
-import { getDateBounds, getStoreNames, getChannels, getDashboardData, getOptionCategories } from "@/lib/data";
+import { UploadStatusBar } from "@/components/UploadStatusBar";
+import {
+  getDateBounds,
+  getStoreNames,
+  getChannels,
+  getDashboardData,
+  getOptionCategories,
+  getRegistrationStatus,
+} from "@/lib/data";
 import { normalizeOptionName, isCatalogOption } from "@/lib/optionPriceCatalog";
 
 export const dynamic = "force-dynamic";
@@ -70,7 +78,11 @@ export default async function DashboardPage({
   const store = sp.store && sp.store !== "all" ? sp.store : null;
   const channel = sp.channel && sp.channel !== "all" ? sp.channel : null;
 
-  const data = await getDashboardData(from, to, store, channel);
+  // 업로드 상태는 매장·채널 필터와 무관하게 "이 기간에 파일이 올라왔는지"만 본다.
+  const [data, registrationDays] = await Promise.all([
+    getDashboardData(from, to, store, channel),
+    getRegistrationStatus(from, to),
+  ]);
   const optionCategories = getOptionCategories();
 
   const menuMix = data.menu;
@@ -173,6 +185,8 @@ export default async function DashboardPage({
         maxDate={bounds.max}
         presets={presets}
       />
+
+      <UploadStatusBar days={registrationDays} />
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <MetricCard label="총 매출" value={`${totalRevenue.toLocaleString()}원`} role="accent" />

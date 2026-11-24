@@ -2,7 +2,7 @@ import { REGISTRATION_CHANNELS, type RegistrationDay } from "@/lib/data";
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
-function dayLabel(iso: string) {
+export function dayLabel(iso: string) {
   const [, m, d] = iso.split("-");
   const weekday = WEEKDAYS[new Date(`${iso}T00:00:00Z`).getUTCDay()];
   return `${Number(m)}/${Number(d)} (${weekday})`;

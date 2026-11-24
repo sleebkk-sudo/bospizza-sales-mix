@@ -71,6 +71,30 @@ const GENERIC_HEADER_ALIASES: Record<string, "category" | "productName" | "qty" 
 const DRINK_KEYWORDS = ["콜라", "사이다", "환타", "스프라이트", "밀키스", "제로"];
 const KEY_SEP = "|||";
 
+// 같은 메뉴인데 배달앱마다 이름이 다르게 내려오는 것들을 하나로 맞춘다 (2026-11-24 대표 확인).
+// 기준은 배민 표기 — 요기요·쿠팡이츠 쪽 이름을 배민 이름으로 바꾼다.
+// - 표기만 다른 것: "페페로니"→"페퍼로니", "…+사이드+음료"→"…+사이드+음료 세트",
+//   음료의 "500ml"/"1.25L"→"500"/"1.25", 치즈한근폭탄피자+불닭발 세트의 말머리.
+// - 조각 수 때문에 갈라진 사이드: 배민은 한 메뉴에서 조각을 옵션으로 고르고 요기요는
+//   "윙&봉 6조각"/"윙&봉 10조각"처럼 메뉴가 따로 있다 — 조각 구분 없이 한 메뉴로 합친다.
+// - 사이다 대용량: 배민이 2026-10-29에 1.25→1.5로 바꿨고 가격은 같다 — "사이다1.5" 하나로 합친다.
+// 기존 DB 행도 같은 규칙으로 한 번 바꿔두었다. 규칙을 바꾸면 DB 쪽도 같이 맞춰야 한다.
+const MENU_NAME_ALIASES: Record<string, string> = {
+  "페페로니 100장 피자 L": "페퍼로니 100장 피자 L",
+  "페페로니 50장 피자 M": "페퍼로니 50장 피자 M",
+  "반반피자+사이드+음료": "반반피자+사이드+음료 세트",
+  "피자+사이드+음료": "피자+사이드+음료 세트",
+  "[매콤고소 꿀조합]치즈한근폭탄피자+불닭발 세트": "[매콤고소] 치즈한근폭탄피자 + 불닭발 세트",
+  "사이다1.25": "사이다1.5",
+};
+
+export function normalizeMenuName(rawName: string): string {
+  let name = rawName.trim();
+  name = name.replace(/^(콜라|제로콜라|사이다)(\d+(?:\.\d+)?)(?:ml|L)$/i, "$1$2");
+  name = name.replace(/^(윙&봉|텐더치킨|통새우링) \d+조각$/, "$1");
+  return MENU_NAME_ALIASES[name] ?? name;
+}
+
 // "피자+사이드+음료 세트"처럼 세트 메뉴 이름에 "피자"/"세트"가 같이 들어있는 경우가
 // 많아, 세트 여부보다 피자 포함 여부를 먼저 판별해야 한다 — 안 그러면 세트로 나가는
 // 피자 판매량이 전부 "세트" 카테고리로 빠져서 피자 판매수량이 실제보다 적게 집계된다.
@@ -78,7 +102,8 @@ export function categorizeMenuName(name: string): string {
   if (name.includes("피자")) return "피자";
   if (name.includes("스파게티") || name.includes("파스타")) return "파스타";
   if (DRINK_KEYWORDS.some((k) => name.includes(k))) return "음료";
-  if (name.includes("+사이드+음료") || name.includes("세트")) return "세트";
+  // "세트" 카테고리는 쓰지 않는다 (2026-11-24 대표 요청) — 피자가 들어간 세트는 위에서 이미
+  // "피자"로 잡히고, 남는 "닭꼬치 4종 세트" 같은 메뉴는 사이드로 본다.
   return "사이드";
 }
 
@@ -357,7 +382,7 @@ function parseBrandOrderReport(raw: Record<string, unknown>[]): ParsedSalesRepor
     }
 
     for (const record of menuRows) {
-      const productName = String(record["메뉴명"] ?? "").trim();
+      const productName = normalizeMenuName(String(record["메뉴명"] ?? ""));
       if (!productName) continue;
 
       const qty = toNumber(record["메뉴or옵션수량"]);
@@ -517,7 +542,7 @@ function parseBaeminShopOrderDetail(raw: Record<string, unknown>[]): ParsedSales
     const storeName = normalizeStoreName(String(record["가게이름"] ?? "").trim()) || "미상";
     const saleDate = String(record["주문일자"] ?? "").trim() || "";
     const orderNo = String(record["주문번호"] ?? "").trim();
-    const productName = String(record["상품명"] ?? "").trim();
+    const productName = normalizeMenuName(String(record["상품명"] ?? ""));
     const productAmountRaw = String(record["상품금액"] ?? "").trim();
 
     if (saleDate) {

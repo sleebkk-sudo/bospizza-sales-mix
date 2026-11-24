@@ -154,6 +154,12 @@ export async function getDashboardData(
 // (2026-11-24) 등록 상태 대상에서 뺀다.
 export const REGISTRATION_CHANNELS = ["배민", "요기요"] as const;
 
+// 채널별로 브랜드 리포트에 잡히는(집계 가능한) 매장 수. 배민은 전체 285개점 중 210개만
+// 리포트에 들어온다 (2026-11-24 대표 확인) — 매장 수가 바뀌면 이 값을 고친다.
+export const CHANNEL_STORE_COVERAGE: Record<string, { reportable: number; total: number } | undefined> = {
+  배민: { reportable: 210, total: 285 },
+};
+
 export type RegistrationCell = { orders: number; revenue: number; stores: number };
 export type RegistrationDay = {
   date: string;
