@@ -252,3 +252,60 @@ from (
   group by sale_date, channel
 ) t;
 $$;
+
+-- ============================================================
+-- 10. 매장 지역 정보 — 지역별 비교 화면용. 값은 supabase/store_regions.sql로 채운다.
+--     area_type(동네 유형): 읍·면·군 / 도 지역 시(동) / 광역시(동) / 서울 / 세종(동).
+-- ============================================================
+alter table stores
+  add column if not exists sido text,
+  add column if not exists sigungu text,
+  add column if not exists area_type text,
+  add column if not exists address text;
+
+-- ============================================================
+-- 11. 지역별 비교 함수 — 기간 안에 주문이 있었던 매장마다 지역과 주문 수·매출·피자 판수를
+--     jsonb 배열로 돌려준다 (src/lib/data.ts getRegionStats). days는 "매장당 하루 판수"를
+--     계산할 때 나눌 일수 — 기간 도중에 처음 데이터가 잡힌 매장은 그날부터 센다.
+-- ============================================================
+create or replace function get_region_stats(p_from date, p_to date, p_channel text default null)
+returns jsonb
+language sql
+stable
+as $$
+with first_sale as (
+  select store_name, min(sale_date) as first_date
+  from store_daily_stats
+  group by store_name
+),
+orders as (
+  select store_name,
+         sum(order_count) as orders,
+         sum(total_revenue) as revenue,
+         coalesce(sum(order_count) filter (where channel = '배민'), 0) as baemin_orders,
+         coalesce(sum(order_count) filter (where channel = '요기요'), 0) as yogiyo_orders
+  from store_daily_stats
+  where sale_date between p_from and p_to
+    and (p_channel is null or channel = p_channel)
+  group by store_name
+),
+pizzas as (
+  select store_name, sum(qty) as pizza_qty
+  from menu_sales_items
+  where category = '피자'
+    and sale_date between p_from and p_to
+    and (p_channel is null or channel = p_channel)
+  group by store_name
+)
+select coalesce(jsonb_agg(jsonb_build_object(
+  'storeName', o.store_name,
+  'sido', s.sido, 'sigungu', s.sigungu, 'areaType', s.area_type,
+  'orders', o.orders, 'revenue', o.revenue, 'pizzaQty', coalesce(p.pizza_qty, 0),
+  'baeminOrders', o.baemin_orders, 'yogiyoOrders', o.yogiyo_orders,
+  'days', (p_to - greatest(p_from, f.first_date) + 1)
+)), '[]'::jsonb)
+from orders o
+left join pizzas p on p.store_name = o.store_name
+left join stores s on s.name = o.store_name
+left join first_sale f on f.store_name = o.store_name;
+$$;

@@ -1,6 +1,7 @@
 import "server-only";
 import { supabase } from "@/lib/supabase";
 import { OPTION_CATALOG_CATEGORIES } from "@/lib/optionPriceCatalog";
+import type { RegionStoreRow } from "@/lib/regions";
 
 export type SalesItem = {
   id: string;
@@ -190,6 +191,14 @@ export async function getRegistrationStatus(from: string, to: string): Promise<R
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
   return days;
+}
+
+// 지역별 비교 화면용 — 기간 안에 주문이 있었던 매장마다 지역(시도·시군구·동네 유형)과
+// 주문 수·매출·피자 판수를 돌려준다. 집계는 Postgres 함수(get_region_stats)가 한다.
+export async function getRegionStats(from: string, to: string, channel: string | null): Promise<RegionStoreRow[]> {
+  const { data, error } = await supabase.rpc("get_region_stats", { p_from: from, p_to: to, p_channel: channel });
+  if (error) throw new Error(`get_region_stats failed: ${error.message}`);
+  return (data ?? []) as RegionStoreRow[];
 }
 
 export async function getReviewsInRange(

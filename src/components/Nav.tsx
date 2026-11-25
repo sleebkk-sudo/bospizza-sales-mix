@@ -8,6 +8,7 @@ const linkClass = "text-sm text-[var(--text-secondary)] hover:text-[var(--text-p
 const links = [
   { href: "/", label: "대시보드" },
   { href: "/#menu-mix", label: "메뉴 믹스" },
+  { href: "/regions", label: "지역" },
   { href: "/upload", label: "업로드" },
   { href: "/reviews", label: "리뷰" },
 ];

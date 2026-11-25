@@ -4,13 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { StoreSelect } from "@/components/StoreSelect";
 
-function buildHref(from: string, to: string, store: string, channel: string) {
+function buildHref(basePath: string, from: string, to: string, store: string, channel: string) {
   const sp = new URLSearchParams();
   sp.set("from", from);
   sp.set("to", to);
   if (store !== "all") sp.set("store", store);
   if (channel !== "all") sp.set("channel", channel);
-  return `/?${sp.toString()}`;
+  return `${basePath}?${sp.toString()}`;
 }
 
 export function FilterBar({
@@ -23,6 +23,8 @@ export function FilterBar({
   minDate,
   maxDate,
   presets,
+  basePath = "/",
+  showStore = true,
 }: {
   from: string;
   to: string;
@@ -33,6 +35,10 @@ export function FilterBar({
   minDate: string;
   maxDate: string;
   presets: { label: string; from: string; to: string }[];
+  // 대시보드 말고 다른 화면(지역별 비교)에서도 같은 필터를 쓴다 — 그 화면의 경로.
+  basePath?: string;
+  // 매장을 고르는 게 의미 없는 화면에서는 매장 선택을 숨긴다.
+  showStore?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -44,7 +50,7 @@ export function FilterBar({
   function navigate(nextFrom: string, nextTo: string, nextStore: string, nextChannel: string) {
     setPendingRange({ from: nextFrom, to: nextTo });
     startTransition(() => {
-      router.push(buildHref(nextFrom, nextTo, nextStore, nextChannel));
+      router.push(buildHref(basePath, nextFrom, nextTo, nextStore, nextChannel));
     });
   }
 
@@ -108,7 +114,7 @@ export function FilterBar({
           max={maxDate}
           className="h-8 rounded-md border border-[var(--border-strong)] bg-[var(--surface-1)] px-2 text-xs"
         />
-        <StoreSelect stores={stores} defaultValue={store} />
+        {showStore && <StoreSelect stores={stores} defaultValue={store} />}
         <select
           name="channel"
           defaultValue={channel}
